@@ -25,6 +25,10 @@ jobs:
           java-version: 17
       - name: Install packages
         run: npm install --no-audit --no-fund
+      - name: Quick check that the app's JavaScript bundles
+        run: npx expo export --platform android --output-dir /tmp/bundle-check
+        env:
+          CI: '1'
       - name: Generate the native Android project
         run: npx expo prebuild --platform android --no-install
         env:
