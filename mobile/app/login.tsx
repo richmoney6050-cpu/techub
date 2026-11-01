@@ -1,11 +1,13 @@
 import { useState } from 'react';
+import { Redirect } from 'expo-router';
 import { KeyboardAvoidingView, Platform, Text, View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../src/session';
 import { Button, Input, ErrorBox, C } from '../src/ui';
 
 export default function Login() {
-  const { login } = useSession(); const [u, setU] = useState(''); const [p, setP] = useState(''); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const { login, me, ready } = useSession(); const [u, setU] = useState(''); const [p, setP] = useState(''); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  if (ready && me) return <Redirect href="/" />;
   async function go() { setBusy(true); setErr(null); try { await login(u.trim(), p); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } }
   return (<SafeAreaView style={{ flex: 1, backgroundColor: C.navy }}><KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 20 }} keyboardShouldPersistTaps="handled">
