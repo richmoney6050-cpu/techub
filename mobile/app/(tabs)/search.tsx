@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { get, money } from '@/api';
-import { useSession } from '@/session';
-import { Card, ErrorBox, Badge, Input, s } from '@/ui';
+import { get, money } from '../../src/api';
+import { useSession } from '../../src/session';
+import { Card, ErrorBox, Badge, Input, s } from '../../src/ui';
 
 export default function Search() {
   const sym = useSession().me!.currency_symbol; const [q, setQ] = useState(''); const [items, setItems] = useState<any[]>([]); const [msg, setMsg] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);

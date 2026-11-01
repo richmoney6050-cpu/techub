@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react';
 import { FlatList, Text, View, RefreshControl } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { get, post } from '@/api';
-import { Button, Card, ErrorBox, s, C } from '@/ui';
+import { get, post } from '../../src/api';
+import { Button, Card, ErrorBox, s, C } from '../../src/ui';
 
 const COLOR: any = { low_stock: C.warn, out_of_stock: C.bad, restocked: C.ok, system: C.blue };
 export default function Alerts() {

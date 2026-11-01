@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { get, post, money, uuid, ApiError } from '@/api';
-import { useSession } from '@/session';
-import { Button, Card, ErrorBox, Badge, Input, s, C } from '@/ui';
+import { get, post, money, uuid, ApiError } from '../../src/api';
+import { useSession } from '../../src/session';
+import { Button, Card, ErrorBox, Badge, Input, s, C } from '../../src/ui';
 
 interface Line { id: string; name: string; price: number; qty: number; max: number }
 const METHODS: [string, string][] = [['cash', 'Cash'], ['momo', 'MoMo'], ['bank_transfer', 'Bank'], ['card', 'Card']];

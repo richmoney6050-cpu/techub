@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
-import { useSession } from '@/session';
-import { C } from '@/ui';
+import { useSession } from '../../src/session';
+import { C } from '../../src/ui';
 
 const icon = (e: string) => ({ focused }: any) => <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.55 }}>{e}</Text>;
 export default function TabsLayout() {

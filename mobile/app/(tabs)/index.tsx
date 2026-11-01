@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { get, money } from '@/api';
-import { useSession } from '@/session';
-import { Card, ErrorBox, Badge, s, C } from '@/ui';
+import { get, money } from '../../src/api';
+import { useSession } from '../../src/session';
+import { Card, ErrorBox, Badge, s, C } from '../../src/ui';
 
 export default function Home() {
   const { me } = useSession(); const sym = me!.currency_symbol; const [d, setD] = useState<any>(null); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);

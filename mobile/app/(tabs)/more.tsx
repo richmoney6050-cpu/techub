@@ -1,7 +1,7 @@
 import { ScrollView, Text } from 'react-native';
-import { useSession } from '@/session';
-import { API_URL } from '@/api';
-import { Button, Card, s } from '@/ui';
+import { useSession } from '../../src/session';
+import { API_URL } from '../../src/api';
+import { Button, Card, s } from '../../src/ui';
 
 export default function More() {
   const { me, logout } = useSession();

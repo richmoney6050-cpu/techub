@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
-import { SessionProvider, useSession } from '@/session';
+import { SessionProvider, useSession } from '../src/session';
 
 function Gate() {
   const { me, ready } = useSession(); const segs = useSegments(); const router = useRouter();

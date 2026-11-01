@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Text, View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSession } from '@/session';
-import { Button, Input, ErrorBox, C } from '@/ui';
+import { useSession } from '../src/session';
+import { Button, Input, ErrorBox, C } from '../src/ui';
 
 export default function Login() {
   const { login } = useSession(); const [u, setU] = useState(''); const [p, setP] = useState(''); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
