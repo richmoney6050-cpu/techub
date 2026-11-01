@@ -17,7 +17,11 @@
       "package": "site.joytree.techhub",
       "permissions": [
         "CAMERA"
-      ]
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b1f3a"
+      }
     },
     "plugins": [
       "expo-router",
@@ -28,10 +32,25 @@
           "cameraPermission": "Allow TECHHUB to scan product barcodes."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "backgroundColor": "#0b1f3a",
+          "resizeMode": "contain",
+          "imageWidth": 200
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "https://techhub-api.joytree.site"
+    },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b1f3a"
     }
   }
 }
