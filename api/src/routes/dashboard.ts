@@ -1,0 +1,84 @@
+import { Router } from 'express';
+import { query, one } from '../db.ts';
+import { can } from '../auth.ts';
+import { config } from '../config.ts';
+
+export const dashboardRouter = Router();
+const TZ = config.timezone;
+const local = (col: string) => `(${col} AT TIME ZONE '${TZ}')`;
+
+dashboardRouter.get('/dashboard', async (req, res) => {
+  const u = req.user!;
+  const biz = u.business_id;
+  const full = u.role === 'owner' || can(u, 'reports.view');
+
+  if (!full) {
+    // Employee dashboard: only what their permissions allow
+    const out: any = { scope: 'employee', permissions: u.permissions };
+    if (can(u, 'sales.view') || can(u, 'sales.create')) {
+      out.my_today = await one(
+        `SELECT count(*) AS sales_count, coalesce(sum(total),0) AS sales_total FROM sales WHERE business_id=$1 AND employee_id=$2 AND ${local('created_at')}::date = ${local('now()')}::date`, [biz, u.id]);
+      out.my_recent_sales = await query(
+        `SELECT id, receipt_no, total, payment_method, created_at FROM sales WHERE business_id=$1 AND employee_id=$2 ORDER BY created_at DESC LIMIT 8`, [biz, u.id]);
+    }
+    if (can(u, 'products.view') || can(u, 'notifications.view')) {
+      out.stock_alerts = await query(
+        `SELECT p.name || coalesce(' (' || v.label || ')','') AS name, i.quantity, i.status FROM inventory i JOIN product_variations v ON v.id=i.variation_id JOIN products p ON p.id=v.product_id
+          WHERE i.business_id=$1 AND v.is_active AND p.is_active AND i.status <> 'in_stock' ORDER BY i.quantity, p.name LIMIT 15`, [biz]);
+    }
+    return res.json(out);
+  }
+
+  const [counts, sales, lowOut, recent, best, daily, movements, perCat] = await Promise.all([
+    one<any>(
+      `SELECT (SELECT count(*) FROM products WHERE business_id=$1 AND is_active) AS products,
+              (SELECT count(*) FROM categories WHERE business_id=$1 AND parent_id IS NULL) AS categories,
+              (SELECT coalesce(sum(i.quantity),0) FROM inventory i JOIN product_variations v ON v.id=i.variation_id WHERE i.business_id=$1 AND v.is_active) AS stock_units,
+              (SELECT coalesce(sum(i.quantity * v.purchase_price),0) FROM inventory i JOIN product_variations v ON v.id=i.variation_id WHERE i.business_id=$1 AND v.is_active) AS inventory_cost_value,
+              (SELECT coalesce(sum(i.quantity * v.selling_price),0) FROM inventory i JOIN product_variations v ON v.id=i.variation_id WHERE i.business_id=$1 AND v.is_active) AS inventory_retail_value,
+              (SELECT count(*) FROM inventory i JOIN product_variations v ON v.id=i.variation_id WHERE i.business_id=$1 AND v.is_active AND i.status='low_stock') AS low_stock,
+              (SELECT count(*) FROM inventory i JOIN product_variations v ON v.id=i.variation_id WHERE i.business_id=$1 AND v.is_active AND i.status='out_of_stock') AS out_of_stock`, [biz]),
+    one<any>(
+      `WITH s AS (SELECT total, refunded_total, ${local('created_at')}::date AS d, id FROM sales WHERE business_id=$1),
+            c AS (SELECT si.sale_id, sum(si.unit_cost * si.quantity) AS cost FROM sale_items si WHERE si.business_id=$1 GROUP BY si.sale_id),
+            rc AS (SELECT si.sale_id, sum(si.unit_cost * ri.quantity) AS cost FROM return_items ri JOIN sale_items si ON si.id=ri.sale_item_id WHERE ri.restocked GROUP BY si.sale_id),
+            today AS (SELECT ${local('now()')}::date AS d)
+       SELECT
+         coalesce(sum(s.total) FILTER (WHERE s.d = today.d),0) AS today,
+         coalesce(sum(s.total) FILTER (WHERE s.d >= date_trunc('week', today.d)),0) AS week,
+         coalesce(sum(s.total) FILTER (WHERE s.d >= date_trunc('month', today.d)),0) AS month,
+         coalesce(sum(s.total),0) AS gross_sales,
+         coalesce(sum(s.refunded_total),0) AS refunds,
+         coalesce(sum(s.total - s.refunded_total),0) AS revenue,
+         coalesce(sum(s.total - s.refunded_total - (coalesce(c.cost,0) - coalesce(rc.cost,0))),0) AS gross_profit,
+         (SELECT coalesce(sum(amount),0) FROM expenses WHERE business_id=$1) AS expenses
+       FROM s CROSS JOIN today LEFT JOIN c ON c.sale_id=s.id LEFT JOIN rc ON rc.sale_id=s.id`, [biz]),
+    query(
+      `SELECT v.id AS variation_id, p.name || coalesce(' (' || v.label || ')','') AS name, i.quantity, i.min_stock, i.status FROM inventory i
+         JOIN product_variations v ON v.id=i.variation_id JOIN products p ON p.id=v.product_id
+        WHERE i.business_id=$1 AND v.is_active AND p.is_active AND i.status <> 'in_stock' ORDER BY (i.status='out_of_stock') DESC, i.quantity, p.name LIMIT 30`, [biz]),
+    query(`SELECT s.id, s.receipt_no, s.total, s.payment_method, s.status, s.created_at, u.name AS employee_name FROM sales s JOIN users u ON u.id=s.employee_id WHERE s.business_id=$1 ORDER BY s.created_at DESC LIMIT 8`, [biz]),
+    query(
+      `SELECT si.product_name AS name, sum(si.quantity - si.returned_qty) AS units, sum(si.line_total) AS revenue FROM sale_items si JOIN sales s ON s.id=si.sale_id
+        WHERE si.business_id=$1 AND s.created_at > now() - interval '30 days' GROUP BY si.product_name ORDER BY units DESC LIMIT 5`, [biz]),
+    query(
+      `WITH days AS (SELECT generate_series(${local('now()')}::date - 29, ${local('now()')}::date, '1 day')::date AS d)
+       SELECT to_char(days.d,'YYYY-MM-DD') AS day, coalesce(sum(s.total),0) AS sales, count(s.id) AS orders FROM days
+         LEFT JOIN sales s ON s.business_id=$1 AND ${local('s.created_at')}::date = days.d GROUP BY days.d ORDER BY days.d`, [biz]),
+    query(
+      `WITH days AS (SELECT generate_series(${local('now()')}::date - 13, ${local('now()')}::date, '1 day')::date AS d)
+       SELECT to_char(days.d,'YYYY-MM-DD') AS day, coalesce(sum(m.qty_change) FILTER (WHERE m.qty_change > 0),0) AS stock_in, coalesce(-sum(m.qty_change) FILTER (WHERE m.qty_change < 0),0) AS stock_out FROM days
+         LEFT JOIN stock_movements m ON m.business_id=$1 AND ${local('m.created_at')}::date = days.d GROUP BY days.d ORDER BY days.d`, [biz]),
+    query(
+      `SELECT coalesce(c.name,'Uncategorised') AS category, sum(i.quantity) AS units FROM inventory i JOIN product_variations v ON v.id=i.variation_id JOIN products p ON p.id=v.product_id
+         LEFT JOIN categories c ON c.id=p.category_id WHERE i.business_id=$1 AND v.is_active GROUP BY 1 ORDER BY 2 DESC LIMIT 8`, [biz]),
+  ]);
+  const unread = await one<any>('SELECT count(*) AS n FROM notifications WHERE business_id=$1 AND NOT is_read', [biz]);
+  res.json({
+    scope: 'owner',
+    cards: { ...counts, ...sales, net_profit: Math.round((sales.gross_profit - sales.expenses) * 100) / 100 },
+    low_out_of_stock: lowOut, recent_sales: recent, best_sellers: best,
+    charts: { daily_sales: daily, stock_movements: movements, stock_by_category: perCat },
+    unread_notifications: unread.n,
+  });
+});

@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "TECHHUB",
+    "slug": "techhub",
+    "version": "1.0.0",
+    "scheme": "techhub",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "site.joytree.techhub", "infoPlist": { "NSCameraUsageDescription": "TECHHUB uses the camera to scan product barcodes." } },
+    "android": { "package": "site.joytree.techhub", "permissions": ["CAMERA"] },
+    "plugins": ["expo-router", "expo-secure-store", ["expo-camera", { "cameraPermission": "Allow TECHHUB to scan product barcodes." }], "expo-notifications"],
+    "extra": { "apiUrl": "https://YOUR-API-URL-HERE" }
+  }
+}
