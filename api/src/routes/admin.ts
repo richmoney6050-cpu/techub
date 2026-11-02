@@ -158,15 +158,23 @@ adminRouter.post('/settings/logo', requirePerm('settings.manage'), upload.single
 });
 
 // ---------- notifications ----------
+// Role-based visibility: customer balances / warranty alerts only reach people allowed to see those records.
+function visibleNotifTypes(u: any): string[] {
+  const t = ['low_stock', 'out_of_stock', 'restocked', 'system'];
+  if (can(u, 'customers.manage')) t.push('customer_overdue');
+  if (can(u, 'warranty.manage')) t.push('warranty_expiring');
+  return t;
+}
 adminRouter.get('/notifications', requireAny('notifications.view'), async (req, res) => {
   const unread = req.query.unread === 'true';
+  const types = visibleNotifTypes(req.user);
   const rows = await query(
-    `SELECT id, type, message, is_read, resolved, variation_id, created_at FROM notifications WHERE business_id=$1 ${unread ? 'AND NOT is_read' : ''} ORDER BY created_at DESC LIMIT 100`, [req.user!.business_id]);
-  const c = await one<any>('SELECT count(*) AS n FROM notifications WHERE business_id=$1 AND NOT is_read', [req.user!.business_id]);
+    `SELECT id, type, message, is_read, resolved, variation_id, ref_id, created_at FROM notifications WHERE business_id=$1 AND type = ANY($2::text[]) ${unread ? 'AND NOT is_read' : ''} ORDER BY created_at DESC LIMIT 100`, [req.user!.business_id, types]);
+  const c = await one<any>('SELECT count(*) AS n FROM notifications WHERE business_id=$1 AND NOT is_read AND type = ANY($2::text[])', [req.user!.business_id, types]);
   res.json({ notifications: rows, unread_count: c.n });
 });
 adminRouter.post('/notifications/read-all', requireAny('notifications.view'), async (req, res) => {
-  await query('UPDATE notifications SET is_read=true WHERE business_id=$1', [req.user!.business_id]);
+  await query('UPDATE notifications SET is_read=true WHERE business_id=$1 AND type = ANY($2::text[])', [req.user!.business_id, visibleNotifTypes(req.user)]);
   res.json({ ok: true });
 });
 adminRouter.post('/notifications/:id/read', requireAny('notifications.view'), async (req, res) => {

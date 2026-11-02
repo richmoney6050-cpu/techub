@@ -17,7 +17,7 @@ const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 20, standar
 
 export const ROLE_TEMPLATES: Record<string, string[]> = {
   Cashier: ['products.view', 'sales.create', 'sales.view'],
-  'Senior Cashier': ['products.view', 'sales.create', 'sales.view', 'sales.view_all', 'discounts.apply', 'returns.process', 'notifications.view'],
+  'Senior Cashier': ['products.view', 'sales.create', 'sales.view', 'sales.view_all', 'discounts.apply', 'returns.process', 'notifications.view', 'customers.manage'],
   'Stock Clerk': ['products.view', 'products.create', 'products.edit', 'stock.adjust', 'notifications.view'],
   Manager: PERMISSIONS.filter((p) => !['employees.manage', 'settings.manage'].includes(p)) as string[],
 };
@@ -79,9 +79,15 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
 authRouter.get('/me', authenticate, async (req, res) => {
   const u = req.user!;
   const row = await one<any>(
-    `SELECT u.id, u.name, u.username, u.email, u.phone, u.role, b.id AS business_id, b.name AS business_name, b.logo_url, b.currency, b.currency_symbol
+    `SELECT u.id, u.name, u.username, u.email, u.phone, u.role, b.id AS business_id, b.name AS business_name, b.logo_url, b.currency, b.currency_symbol, u.theme
        FROM users u JOIN businesses b ON b.id=u.business_id WHERE u.id=$1`, [u.id]);
   res.json({ user: { ...row, permissions: u.permissions } });
+});
+
+authRouter.put('/preferences', authenticate, async (req, res) => {
+  const b = z.object({ theme: z.enum(['light', 'dark', 'system']) }).parse(req.body);
+  await query('UPDATE users SET theme=$2 WHERE id=$1', [req.user!.id, b.theme]);
+  res.json({ ok: true, theme: b.theme });
 });
 
 authRouter.post('/logout', authenticate, async (req, res) => {

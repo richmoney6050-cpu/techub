@@ -63,11 +63,11 @@ export function LineChart({ data, x, series, height = 220, sym = 'GH₵' }: { da
   const py = (v: number) => P.t + (1 - v / top) * (H - P.t - P.b);
   return (<div>
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} role="img" onMouseLeave={() => setHover(null)}>
-      {[0, .25, .5, .75, 1].map((t) => <g key={t}><line x1={P.l} x2={W - P.r} y1={py(top * t)} y2={py(top * t)} stroke="#e8ecf3" /><text x={P.l - 6} y={py(top * t) + 4} fontSize="10" textAnchor="end" fill="#7a879b">{Math.round(top * t).toLocaleString()}</text></g>)}
+      {[0, .25, .5, .75, 1].map((t) => <g key={t}><line x1={P.l} x2={W - P.r} y1={py(top * t)} y2={py(top * t)} stroke="var(--line)" /><text x={P.l - 6} y={py(top * t) + 4} fontSize="10" textAnchor="end" fill="var(--muted)">{Math.round(top * t).toLocaleString()}</text></g>)}
       {series.map((s) => <polyline key={s.key} fill="none" stroke={s.color} strokeWidth="2.5" strokeLinejoin="round" points={data.map((d, i) => `${px(i)},${py(Number(d[s.key]) || 0)}`).join(' ')} />)}
-      {data.map((d, i) => (i % Math.ceil(data.length / 7) === 0) && <text key={i} x={px(i)} y={H - 6} fontSize="10" textAnchor="middle" fill="#7a879b">{String(d[x]).slice(5)}</text>)}
+      {data.map((d, i) => (i % Math.ceil(data.length / 7) === 0) && <text key={i} x={px(i)} y={H - 6} fontSize="10" textAnchor="middle" fill="var(--muted)">{String(d[x]).slice(5)}</text>)}
       {data.map((d, i) => <rect key={i} x={px(i) - (W - P.l - P.r) / data.length / 2} y={P.t} width={(W - P.l - P.r) / data.length} height={H - P.t - P.b} fill="transparent" onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} />)}
-      {hover !== null && <g><line x1={px(hover)} x2={px(hover)} y1={P.t} y2={H - P.b} stroke="#9fb4d6" strokeDasharray="3 3" />{series.map((s) => <circle key={s.key} cx={px(hover)} cy={py(Number(data[hover][s.key]) || 0)} r="4" fill={s.color} />)}</g>}
+      {hover !== null && <g><line x1={px(hover)} x2={px(hover)} y1={P.t} y2={H - P.b} stroke="var(--muted)" strokeDasharray="3 3" />{series.map((s) => <circle key={s.key} cx={px(hover)} cy={py(Number(data[hover][s.key]) || 0)} r="4" fill={s.color} />)}</g>}
     </svg>
     {hover !== null ? <div className="small" style={{ minHeight: 20 }}><b>{data[hover][x]}</b> — {series.map((s) => `${s.label}: ${s.key === 'orders' ? data[hover][s.key] : money(data[hover][s.key], sym)}`).join('  ·  ')}</div> : <div className="small muted" style={{ minHeight: 20 }}>Hover or tap the chart for details</div>}
     <div className="legend">{series.map((s) => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}</div>
@@ -82,11 +82,11 @@ export function BarChart({ data, x, series, height = 220 }: { data: any[]; x: st
   const py = (v: number) => P.t + (1 - v / max) * (H - P.t - P.b);
   return (<div>
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }} role="img" onMouseLeave={() => setHover(null)}>
-      {[0, .5, 1].map((t) => <g key={t}><line x1={P.l} x2={W - P.r} y1={py(max * t)} y2={py(max * t)} stroke="#e8ecf3" /><text x={P.l - 6} y={py(max * t) + 4} fontSize="10" textAnchor="end" fill="#7a879b">{Math.round(max * t)}</text></g>)}
+      {[0, .5, 1].map((t) => <g key={t}><line x1={P.l} x2={W - P.r} y1={py(max * t)} y2={py(max * t)} stroke="var(--line)" /><text x={P.l - 6} y={py(max * t) + 4} fontSize="10" textAnchor="end" fill="var(--muted)">{Math.round(max * t)}</text></g>)}
       {data.map((d, i) => <g key={i} onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)}>
-        <rect x={P.l + i * gw} y={P.t} width={gw} height={H - P.t - P.b} fill={hover === i ? '#f1f6ff' : 'transparent'} />
+        <rect x={P.l + i * gw} y={P.t} width={gw} height={H - P.t - P.b} fill={hover === i ? 'var(--hover)' : 'transparent'} />
         {series.map((s, j) => <rect key={s.key} x={P.l + i * gw + gw * 0.15 + j * bw} y={py(Number(d[s.key]) || 0)} width={bw - 1} height={H - P.b - py(Number(d[s.key]) || 0)} fill={s.color} rx="2" />)}
-        {i % Math.ceil(data.length / 7) === 0 && <text x={P.l + i * gw + gw / 2} y={H - 6} fontSize="10" textAnchor="middle" fill="#7a879b">{String(d[x]).slice(5)}</text>}
+        {i % Math.ceil(data.length / 7) === 0 && <text x={P.l + i * gw + gw / 2} y={H - 6} fontSize="10" textAnchor="middle" fill="var(--muted)">{String(d[x]).slice(5)}</text>}
       </g>)}
     </svg>
     {hover !== null ? <div className="small"><b>{data[hover][x]}</b> — {series.map((s) => `${s.label}: ${data[hover][s.key]}`).join('  ·  ')}</div> : <div className="small muted">Hover or tap the chart for details</div>}
@@ -99,6 +99,6 @@ export function HBars({ data, label, value, color = '#1e6bff' }: { data: any[]; 
   return (<div>{data.length === 0 && <div className="muted small">No data yet</div>}{data.map((d, i) => (
     <div key={i} style={{ marginBottom: 9 }}>
       <div className="row between small"><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>{d[label]}</span><b>{Number(d[value]).toLocaleString()}</b></div>
-      <div style={{ background: '#eef2f9', borderRadius: 6, height: 8 }}><div style={{ width: `${(Number(d[value]) / max) * 100}%`, background: color, height: 8, borderRadius: 6 }} /></div>
+      <div style={{ background: "var(--row-line)", borderRadius: 6, height: 8 }}><div style={{ width: `${(Number(d[value]) / max) * 100}%`, background: color, height: 8, borderRadius: 6 }} /></div>
     </div>))}</div>);
 }

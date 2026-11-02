@@ -29,6 +29,7 @@ export const PERMISSIONS = [
   'products.view', 'products.view_cost', 'products.create', 'products.edit', 'products.edit_price', 'products.delete',
   'stock.adjust', 'sales.create', 'sales.view', 'sales.view_all', 'discounts.apply', 'returns.process', 'returns.refund',
   'reports.view', 'suppliers.manage', 'expenses.manage', 'notifications.view', 'employees.manage', 'settings.manage',
+  'customers.manage', 'customers.credit', 'warranty.manage',
 ] as const;
 export const OWNER_ONLY = ['employees.manage', 'settings.manage'];
 export const DEFAULT_EMPLOYEE_PERMISSIONS = ['products.view', 'sales.create', 'sales.view'];

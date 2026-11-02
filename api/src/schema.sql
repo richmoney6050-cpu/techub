@@ -369,3 +369,86 @@ INSERT INTO permissions (key, description, owner_only) VALUES
  ('employees.manage','Manage employees',true),
  ('settings.manage','Change business settings',true)
 ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description, owner_only = EXCLUDED.owner_only;
+
+-- =====================================================================
+-- Upgrade v2 (additive, backward compatible): customers, credit, warranties, theme
+-- =====================================================================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS theme text NOT NULL DEFAULT 'system';
+DO $$ BEGIN
+  ALTER TABLE users ADD CONSTRAINT users_theme_check CHECK (theme IN ('light','dark','system'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS customers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id uuid NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  phone text,
+  email text,
+  address text,
+  notes text,
+  is_active boolean NOT NULL DEFAULT true,   -- archived, never hard-deleted
+  created_by uuid REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS customers_biz_idx ON customers (business_id, lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS customers_phone_uq ON customers (business_id, phone) WHERE phone IS NOT NULL AND phone <> '' AND is_active;
+
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES customers(id);
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS due_date date;
+CREATE INDEX IF NOT EXISTS sales_customer_idx ON sales (customer_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS sales_outstanding_idx ON sales (business_id) WHERE balance_due > 0;
+
+CREATE TABLE IF NOT EXISTS warranties (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id uuid NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  sale_id uuid REFERENCES sales(id),
+  sale_item_id uuid REFERENCES sale_items(id),
+  customer_id uuid REFERENCES customers(id),
+  variation_id uuid REFERENCES product_variations(id),
+  product_name text NOT NULL,
+  serial_number text,
+  imei text,
+  purchase_date date NOT NULL DEFAULT current_date,
+  start_date date NOT NULL DEFAULT current_date,
+  duration_months integer NOT NULL CHECK (duration_months > 0 AND duration_months <= 120),
+  end_date date NOT NULL,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','expired','under_review','claimed','completed')),
+  conditions text,
+  created_by uuid REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (serial_number IS NOT NULL OR imei IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS warranties_serial_uq ON warranties (business_id, lower(serial_number)) WHERE serial_number IS NOT NULL AND serial_number <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS warranties_imei_uq ON warranties (business_id, imei) WHERE imei IS NOT NULL AND imei <> '';
+CREATE INDEX IF NOT EXISTS warranties_end_idx ON warranties (business_id, end_date);
+
+CREATE TABLE IF NOT EXISTS warranty_claims (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id uuid NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  warranty_id uuid NOT NULL REFERENCES warranties(id),
+  issue text NOT NULL,
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_service','resolved','rejected')),
+  resolution text,
+  created_by uuid REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  resolved_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS warranty_claims_w_idx ON warranty_claims (warranty_id, created_at DESC);
+
+-- notifications: new types + optional reference so warranty / overdue alerts are not duplicated
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS ref_id uuid;
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
+  CHECK (type IN ('low_stock','out_of_stock','restocked','system','warranty_expiring','customer_overdue'));
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_ref_active_uq
+  ON notifications (ref_id, type) WHERE resolved = false AND ref_id IS NOT NULL AND type IN ('warranty_expiring','customer_overdue');
+
+INSERT INTO permissions (key, description, owner_only) VALUES
+ ('customers.manage','View and manage customer records',false),
+ ('customers.credit','Sell on credit and record customer payments',false),
+ ('warranty.manage','Record warranties, serial numbers and claims',false)
+ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description, owner_only = EXCLUDED.owner_only;
+
+-- customer payments reuse the existing payments table; idempotency key prevents double-posting
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS idempotency_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS payments_idem_uq ON payments (business_id, idempotency_key) WHERE idempotency_key IS NOT NULL;

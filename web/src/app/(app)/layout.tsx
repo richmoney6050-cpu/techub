@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { get, post, useApi } from '@/lib/api';
 import { Me, MeContext } from '@/lib/me';
 import { Loading } from '@/components/ui';
+import ThemeSwitch from '@/components/ThemeSwitch';
 
 const NAV: { href: string; label: string; icon: string; perm?: string[]; owner?: boolean }[] = [
   { href: '/', label: 'Dashboard', icon: '▦' },
@@ -13,6 +14,8 @@ const NAV: { href: string; label: string; icon: string; perm?: string[]; owner?:
   { href: '/sales', label: 'Sales', icon: '🧾', perm: ['sales.view', 'sales.view_all'] },
   { href: '/returns', label: 'Returns', icon: '↩', perm: ['returns.process'] },
   { href: '/inventory', label: 'Stock History', icon: '📈', perm: ['stock.adjust', 'reports.view'] },
+  { href: '/customers', label: 'Customers', icon: '🧑', perm: ['customers.manage'] },
+  { href: '/warranties', label: 'Warranties', icon: '🛡', perm: ['warranty.manage'] },
   { href: '/suppliers', label: 'Suppliers', icon: '🚚', perm: ['suppliers.manage'] },
   { href: '/expenses', label: 'Expenses', icon: '💸', perm: ['expenses.manage', 'reports.view'] },
   { href: '/reports', label: 'Reports', icon: '📊', perm: ['reports.view'] },
@@ -44,7 +47,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           return <Link key={n.href} href={n.href} className={active ? 'active' : ''}><span aria-hidden>{n.icon}</span>{n.label}{n.href === '/notifications' && unread > 0 && <span className="badge">{unread}</span>}</Link>;
         })}
       </nav>
-      <div className="side-foot"><div style={{ color: '#fff', fontWeight: 600 }}>{me.name}</div><div style={{ marginBottom: 6 }}>{me.role === 'owner' ? 'Business owner' : 'Employee'}</div><button onClick={logout}>Sign out</button></div>
+      <div className="side-foot"><ThemeSwitch initial={me.theme} /><div style={{ color: '#fff', fontWeight: 600 }}>{me.name}</div><div style={{ marginBottom: 6 }}>{me.role === 'owner' ? 'Business owner' : 'Employee'}</div><button onClick={logout}>Sign out</button></div>
     </aside>
     <div className="main">
       <div className="topbar"><button onClick={() => setOpen(true)} aria-label="Open menu">☰</button><b>TECHHUB</b>{unread > 0 && <span className="badge b-bad" style={{ marginLeft: 'auto' }}>🔔 {unread}</span>}</div>

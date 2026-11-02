@@ -97,3 +97,10 @@ Also enable your hosting provider's automatic database backups. Test a restore o
 - Product photos are stored on the API server's disk; for several API servers switch `src/files.ts` to cloud object storage (S3/R2).
 - Barcode scanning on web works with USB/Bluetooth scanners (they type the code + Enter in the POS search box).
 - Offline mode is not included: when the connection drops, actions fail safely with a clear message and can be retried without double-selling.
+
+## Upgrade v2 (in progress, staged)
+Done: navy/electric-blue palette, Light/Dark/Auto theme (saved per user), customers, credit sales + customer payments, warranties/serial/IMEI + claims, warranty and overdue alerts.
+New permissions: `customers.manage`, `customers.credit`, `warranty.manage` (existing roles must be edited by the owner to grant them; the owner has them automatically).
+Behaviour change: a sale with an unpaid balance now requires a registered customer and `customers.credit`.
+Not yet built: cash-flow report, barcode generation/printing/QR, scanner support, dashboard date filters and extra charts, backup/restore module, CSV export, supplier balances report, receipt/serial capture at POS.
+Nothing in this upgrade has been executed end-to-end yet: SQL was verified on Postgres, TS/TSX only syntax-checked. Run `npm test` in api/ and a manual pass before production.

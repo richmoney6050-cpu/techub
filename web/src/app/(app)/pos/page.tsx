@@ -15,6 +15,8 @@ export default function POS() {
   const [cart, setCart] = useState<Line[]>([]);
   const [method, setMethod] = useState<string>('cash'); const [paid, setPaid] = useState(''); const [dtype, setDtype] = useState<'amount' | 'percent'>('percent'); const [dval, setDval] = useState('');
   const [customer, setCustomer] = useState(''); const [ref, setRef] = useState('');
+  const [customerId, setCustomerId] = useState(''); const [dueDate, setDueDate] = useState(''); const [customers, setCustomers] = useState<any[]>([]);
+  useEffect(() => { get('/customers?limit=200').then((r) => setCustomers(r.customers)).catch(() => {}); }, []);
   const [err, setErr] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<any>(null);
   // one key per checkout attempt: retrying after a network drop can never double-charge or double-deduct
@@ -58,11 +60,11 @@ export default function POS() {
     try {
       const r = await post('/sales', {
         idempotency_key: key, items: cart.map((l) => ({ variation_id: l.variation_id, quantity: l.qty })), payment_method: method, amount_paid: paidNum,
-        payment_reference: ref || undefined, customer_name: customer || undefined, discount: discount > 0 ? { type: dtype, value: dv } : undefined,
+        payment_reference: ref || undefined, customer_name: customerId ? undefined : customer || undefined, customer_id: customerId || undefined, due_date: balance > 0 && dueDate ? dueDate : undefined, discount: discount > 0 ? { type: dtype, value: dv } : undefined,
       });
       const rc = await get(`/sales/${r.sale.id}/receipt`);
       setReceipt({ ...rc.receipt, sale_id: r.sale.id });
-      setCart([]); setPaid(''); setDval(''); setCustomer(''); setRef(''); setKey(uuid()); search(q);
+      setCart([]); setPaid(''); setDval(''); setCustomer(''); setCustomerId(''); setDueDate(''); setRef(''); setKey(uuid()); search(q);
       toast(r.duplicate ? 'This sale was already recorded' : 'Sale completed ✔', 'ok');
     } catch (e: any) {
       if (e instanceof ApiError && e.code === 'insufficient_stock') { setErr(e.message + '. Please reduce the quantity.'); search(q); }
@@ -98,6 +100,8 @@ export default function POS() {
         <div className="pay-methods">{METHODS.map(([k, l]) => <button key={k} className={method === k ? 'on' : ''} onClick={() => setMethod(k)}>{l}</button>)}</div>
         <div className="grid g2"><Field label="Amount paid"><input type="number" min={0} value={paid} onChange={(e) => setPaid(e.target.value)} placeholder={String(total)} /></Field>
           {method !== 'cash' ? <Field label="Reference (optional)"><input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="MoMo / txn ID" /></Field> : <Field label="Customer (optional)"><input value={customer} onChange={(e) => setCustomer(e.target.value)} /></Field>}</div>
+        <Field label="Registered customer (needed for credit)"><select value={customerId} onChange={(e) => setCustomerId(e.target.value)}><option value="">— walk-in / none —</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>)}</select></Field>
+        {balance > 0 && <Field label="Payment due date" hint={customerId ? undefined : 'Select a customer to sell on credit'}><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>}
         {change > 0 && <div className="alert ok"><b>Change to give: {money(change, sym)}</b></div>}
         {balance > 0 && <div className="alert warn">Customer still owes {money(balance, sym)}</div>}
         <Err msg={err} />

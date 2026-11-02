@@ -17,6 +17,8 @@ const saleSchema = z.object({
   amount_paid: z.coerce.number().min(0).optional(),
   payment_reference: z.string().trim().max(100).optional(),
   customer_name: z.string().trim().max(120).optional(),
+  customer_id: z.string().uuid().optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   note: z.string().trim().max(300).optional(),
 });
 
@@ -73,12 +75,24 @@ salesRouter.post('/sales', requirePerm('sales.create'), async (req, res) => {
     const balance = round2(Math.max(total - paid, 0));
     if (b.payment_method !== 'cash' && paid > total) throw bad('Amount paid cannot exceed the total for non-cash payments');
 
+    // Credit / part-payment: needs a registered customer and the credit permission
+    let customer: any = null;
+    if (b.customer_id) {
+      customer = await one<any>('SELECT id, name FROM customers WHERE id=$1 AND business_id=$2 AND is_active', [b.customer_id, biz], c);
+      if (!customer) throw notFound('Customer not found');
+    }
+    if (balance > 0) {
+      if (!can(req.user, 'customers.credit')) throw forbidden('You are not allowed to sell on credit');
+      if (!customer) throw bad('Choose a registered customer to sell on credit');
+    }
+    const customerName = customer?.name || b.customer_name || null;
+
     const no = await nextCounter(c, biz, 'receipt');
     const receiptNo = `RCP-${String(no).padStart(6, '0')}`;
     const sale = await one<any>(
-      `INSERT INTO sales (business_id, receipt_no, idempotency_key, employee_id, customer_name, subtotal, discount, total, amount_paid, change_due, balance_due, payment_method, note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
-      [biz, receiptNo, b.idempotency_key, req.user!.id, b.customer_name || null, subtotal, discount, total, paid, change, balance, b.payment_method, b.note || null], c);
+      `INSERT INTO sales (business_id, receipt_no, idempotency_key, employee_id, customer_name, customer_id, due_date, subtotal, discount, total, amount_paid, change_due, balance_due, payment_method, note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+      [biz, receiptNo, b.idempotency_key, req.user!.id, customerName, customer?.id || null, balance > 0 ? (b.due_date || null) : null, subtotal, discount, total, paid, change, balance, b.payment_method, b.note || null], c);
 
     const alerts: any[] = [];
     for (const l of lines) {
@@ -94,7 +108,7 @@ salesRouter.post('/sales', requirePerm('sales.create'), async (req, res) => {
 
     const biz_ = await one<any>('SELECT name, logo_url, address, phone, email, currency_symbol, receipt_footer, receipt_show_logo FROM businesses WHERE id=$1', [biz], c);
     const snapshot = {
-      receipt_no: receiptNo, created_at: new Date().toISOString(), timezone: config.timezone, employee_name: req.user!.name, customer_name: b.customer_name || null,
+      receipt_no: receiptNo, created_at: new Date().toISOString(), timezone: config.timezone, employee_name: req.user!.name, customer_name: customerName,
       items: lines.map((l) => ({ name: l.name, sku: l.v.sku, quantity: l.qty, unit_price: l.v.selling_price, line_total: l.line_total })),
       subtotal, discount, total, payment_method: b.payment_method, amount_paid: paid, change_due: change, balance_due: balance,
       business: biz_, footer: biz_.receipt_footer,
