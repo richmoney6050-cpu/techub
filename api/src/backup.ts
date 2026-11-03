@@ -54,7 +54,7 @@ export async function createBackup(businessId: string, kind: 'manual' | 'schedul
     // one consistent snapshot of every table
     const parts: string[] = []; const counts: Record<string, number> = {};
     await tx(async (c) => {
-      await query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY', [], c).catch(() => {});
+      await query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY', [], c);
       const biz = await one<any>(`SELECT row_to_json(b)::text AS j FROM businesses b WHERE id=$1`, [businessId], c);
       parts.push(`"business":${biz!.j}`);
       for (const t of [...KEEP_IF_MISSING, ...REPLACED]) {

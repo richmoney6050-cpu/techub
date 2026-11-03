@@ -255,3 +255,94 @@ test('supplier purchase order receiving updates stock and history', async () => 
   assert.equal(pay.data.purchase_order.amount_paid, 100);
   assert.equal((await api('POST', `/api/purchase-orders/${po.data.purchase_order.id}/payments`, S.owner, { amount: 100 })).status, 400);
 });
+
+// ---------------- Upgrade v2: customers, credit, warranties, notifications, backups ----------------
+test('credit sale needs a customer + permission; customer payments settle the balance exactly once', async () => {
+  const cust = await api('POST', '/api/customers', S.owner, { name: 'Kwame Mensah', phone: '0244111222' });
+  assert.equal(cust.status, 201); S.customer = cust.data.customer.id;
+  assert.equal((await api('POST', '/api/customers', S.owner, { name: 'Dup', phone: '0244111222' })).status, 409);
+  const sale = (extra: any, tok = S.owner) => api('POST', '/api/sales', tok, { idempotency_key: key(), items: [{ variation_id: S.variation, quantity: 2 }], payment_method: 'cash', amount_paid: 20, ...extra });
+  assert.equal((await sale({})).status, 400, 'credit without a customer is rejected');
+  assert.equal((await sale({ customer_id: S.customer }, S.kofi.token)).status, 403, 'employee without customers.credit cannot sell on credit');
+  const ok = await sale({ customer_id: S.customer, due_date: '2020-01-01' });
+  assert.equal(ok.status, 201); assert.equal(ok.data.sale.balance_due, 40);
+  const saleId = ok.data.sale.id;
+  const detail = await api('GET', `/api/customers/${S.customer}`, S.owner);
+  assert.equal(detail.data.totals.outstanding, 40);
+  const k = key();
+  const pay = await api('POST', `/api/customers/${S.customer}/payments`, S.owner, { idempotency_key: k, sale_id: saleId, amount: 25, method: 'momo' });
+  assert.equal(pay.status, 201); assert.equal(pay.data.sale.balance_due, 15);
+  const again = await api('POST', `/api/customers/${S.customer}/payments`, S.owner, { idempotency_key: k, sale_id: saleId, amount: 25, method: 'momo' });
+  assert.equal(again.data.duplicate, true);
+  assert.equal((await api('GET', `/api/customers/${S.customer}`, S.owner)).data.totals.outstanding, 15, 'duplicate submission did not post twice');
+  assert.equal((await api('POST', `/api/customers/${S.customer}/payments`, S.owner, { idempotency_key: key(), sale_id: saleId, amount: 99, method: 'cash' })).status, 400, 'cannot overpay');
+  assert.equal((await api('GET', '/api/customers', S.limited.token)).status, 403);
+});
+
+test('warranty: unique serial, claim flow, expired warranties cannot be claimed', async () => {
+  const w = await api('POST', '/api/warranties', S.owner, { product_name: 'HP Laptop', serial_number: 'SN-TEST-1', duration_months: 12, customer_id: S.customer });
+  assert.equal(w.status, 201);
+  assert.equal((await api('POST', '/api/warranties', S.owner, { product_name: 'Other', serial_number: 'sn-test-1', duration_months: 6 })).status, 409);
+  assert.equal((await api('POST', '/api/warranties', S.owner, { product_name: 'No id', duration_months: 6 })).status, 400);
+  const id = w.data.warranty.id;
+  const claim = await api('POST', `/api/warranties/${id}/claims`, S.owner, { issue: 'Screen flickers' });
+  assert.equal(claim.status, 201);
+  assert.equal((await api('GET', `/api/warranties/${id}`, S.owner)).data.warranty.status, 'under_review');
+  assert.equal((await api('PUT', `/api/warranties/${id}/claims/${claim.data.claim.id}`, S.owner, { status: 'resolved', resolution: 'Screen replaced' })).status, 200);
+  assert.equal((await api('GET', `/api/warranties/${id}`, S.owner)).data.warranty.status, 'completed');
+  await pool.query(`UPDATE warranties SET status='active', end_date = current_date - 5 WHERE id=$1`, [id]);
+  assert.equal((await api('GET', `/api/warranties/${id}`, S.owner)).data.warranty.status, 'expired');
+  assert.equal((await api('POST', `/api/warranties/${id}/claims`, S.owner, { issue: 'Late claim' })).status, 400);
+  assert.equal((await api('GET', '/api/warranties', S.kofi.token)).status, 403);
+});
+
+test('overdue customer alerts are role-restricted and not duplicated', async () => {
+  const { runDailyChecks } = await import('../src/jobs.ts');
+  await runDailyChecks(); await runDailyChecks();
+  const n = (await pool.query(`SELECT count(*)::int AS n FROM notifications WHERE type='customer_overdue'`)).rows[0].n;
+  assert.equal(n, 1);
+  const own = await api('GET', '/api/notifications', S.owner);
+  assert.ok(own.data.notifications.some((x: any) => x.type === 'customer_overdue'));
+  const emp = await api('POST', '/api/employees', S.owner, { name: 'notif', username: 'notifuser', password: 'Passw0rdEmp1', permissions: ['notifications.view'] });
+  const l = await api('POST', '/api/auth/login', undefined, { username: 'notifuser', password: 'Passw0rdEmp1' });
+  assert.equal(emp.status, 201);
+  const theirs = await api('GET', '/api/notifications', l.data.token);
+  assert.ok(!theirs.data.notifications.some((x: any) => x.type === 'customer_overdue'), 'balances are hidden from staff without customers.manage');
+});
+
+test('reports: cashflow reconciles and CSV export works', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const cf = await api('GET', `/api/reports/cashflow?from=${today}&to=${today}`, S.owner);
+  assert.equal(cf.status, 200);
+  const s = Object.fromEntries(cf.data.summary.map((x: any) => [x.label, x.value]));
+  assert.equal(Math.round((s['Opening balance'] + s['Money in'] - s['Money out']) * 100), Math.round(s['Closing balance'] * 100));
+  const csv = await fetch(`${base}/api/reports/receivables?format=csv`, { headers: { Authorization: `Bearer ${S.owner}` } });
+  assert.equal(csv.status, 200); assert.match(await csv.text(), /Kwame Mensah/);
+  assert.equal((await api('GET', '/api/reports/cashflow', S.kofi.token)).status, 403);
+});
+
+test('backups: owner-only; create is verified; restore needs password + confirmation and brings data back', async () => {
+  assert.equal((await api('GET', '/api/backups', S.kofi.token)).status, 403);
+  assert.equal((await api('POST', '/api/backups', S.kofi.token)).status, 403);
+  const b = await api('POST', '/api/backups', S.owner);
+  assert.equal(b.status, 201, JSON.stringify(b.data)); assert.equal(b.data.backup.status, 'verified');
+  const id = b.data.backup.id;
+  assert.equal((await api('POST', `/api/backups/${id}/verify`, S.owner)).status, 200);
+  const before = (await pool.query('SELECT count(*)::int AS n FROM sales')).rows[0].n;
+  await pool.query('DELETE FROM payments'); await pool.query('DELETE FROM warranty_claims'); await pool.query('DELETE FROM receipts'); await pool.query('DELETE FROM return_items'); await pool.query('DELETE FROM returns');
+  await pool.query('DELETE FROM sale_items'); await pool.query('DELETE FROM sales');
+  assert.equal((await api('POST', `/api/backups/${id}/restore`, S.owner, { confirm: 'RESTORE', password: 'wrong-password' })).status, 400);
+  assert.equal((await api('POST', `/api/backups/${id}/restore`, S.owner, { confirm: 'nope', password: 'Passw0rdOwner' })).status, 400);
+  const r = await api('POST', `/api/backups/${id}/restore`, S.owner, { confirm: 'RESTORE', password: 'Passw0rdOwner' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM sales')).rows[0].n, before);
+  const list = await api('GET', '/api/backups', S.owner);
+  assert.ok(list.data.backups.some((x: any) => x.kind === 'pre_restore' && x.status === 'verified'), 'safety copy exists');
+  assert.equal((await api('GET', `/api/backups/${id}/download`, S.kofi.token)).status, 403);
+});
+
+test('theme preference is saved per user', async () => {
+  assert.equal((await api('PUT', '/api/auth/preferences', S.owner, { theme: 'dark' })).status, 200);
+  assert.equal((await api('GET', '/api/auth/me', S.owner)).data.user.theme, 'dark');
+  assert.equal((await api('PUT', '/api/auth/preferences', S.owner, { theme: 'neon' })).status, 400);
+});
