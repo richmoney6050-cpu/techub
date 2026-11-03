@@ -38,11 +38,17 @@ export default function Dashboard() {
       <Stat label="Products" value={num(c.products)} sub={`${num(c.categories)} categories`} />
       <Stat label="Units in stock" value={num(c.stock_units)} />
       <Stat label="Inventory value" value={money(c.inventory_cost_value, sym)} sub={`Retail ${money(c.inventory_retail_value, sym)}`} />
+      <Stat label="Owed by customers" value={money(c.pending_customer_payments, sym)} sub="Unpaid credit sales" />
+      <Stat label="Owed to suppliers" value={money(c.outstanding_supplier_payments, sym)} sub="Unpaid purchase orders" />
       <Link href="/products?stock=low" style={{ textDecoration: 'none' }}><Stat label="Low / out of stock" value={<><span style={{ color: '#b7791f' }}>{num(c.low_stock)}</span> / <span style={{ color: '#d93025' }}>{num(c.out_of_stock)}</span></>} sub="Tap to review" /></Link>
     </div>
     <div className="grid g2" style={{ marginTop: 14 }}>
       <Card><div className="chart-title">Sales — last 30 days</div><LineChart data={data.charts.daily_sales} x="day" sym={sym} series={[{ key: 'sales', label: 'Sales', color: '#1e6bff' }]} /></Card>
       <Card><div className="chart-title">Stock movement — last 14 days (units)</div><BarChart data={data.charts.stock_movements} x="day" series={[{ key: 'stock_in', label: 'Stock in', color: '#0f9d58' }, { key: 'stock_out', label: 'Stock out', color: '#0b1f3a' }]} /></Card>
+    </div>
+    <div className="grid g2" style={{ marginTop: 14 }}>
+      <Card><div className="chart-title">Profit &amp; loss — last 6 months</div><BarChart data={data.charts.monthly_pnl} x="month" series={[{ key: 'revenue', label: 'Revenue', color: '#176bff' }, { key: 'gross_profit', label: 'Gross profit', color: '#38bdf8' }, { key: 'expenses', label: 'Expenses', color: '#f59e0b' }, { key: 'net_profit', label: 'Net profit', color: '#16a34a' }]} /></Card>
+      <Card><div className="chart-title">Expenses by category — last 30 days</div>{data.charts.expense_breakdown.length ? <HBars data={data.charts.expense_breakdown} label="category" value="amount" color="#f59e0b" /> : <div className="empty">No expenses recorded</div>}</Card>
     </div>
     <div className="grid g3" style={{ marginTop: 14 }}>
       <Card><h2>Needs restocking</h2><div className="table-wrap"><table><tbody>

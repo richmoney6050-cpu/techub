@@ -3,7 +3,7 @@ import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { query, one, round2 } from '../db.ts';
-import { requirePerm } from '../auth.ts';
+import { requirePerm, requireOwner, audit } from '../auth.ts';
 import { config } from '../config.ts';
 import { bad, notFound } from '../errors.ts';
 import { pdfSymbol } from '../receipt.ts';
@@ -17,7 +17,7 @@ interface Report { title: string; columns: Col[]; rows: any[]; summary: Array<{ 
 
 const rangeSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  employee_id: z.string().uuid().optional(), format: z.enum(['json', 'xlsx', 'pdf']).default('json'),
+  employee_id: z.string().uuid().optional(), format: z.enum(['json', 'xlsx', 'pdf', 'csv']).default('json'),
 });
 
 function groupExpr(g: 'day' | 'week' | 'month' | 'year', col: string) {
@@ -111,6 +111,65 @@ const BUILDERS: Record<string, (biz: string, from: string, to: string, emp?: str
     return { title: 'Low-stock & out-of-stock report', columns: [{ key: 'name', label: 'Product' }, { key: 'sku', label: 'SKU' }, { key: 'quantity', label: 'Qty', type: 'int' }, { key: 'min_stock', label: 'Minimum', type: 'int' }, { key: 'status', label: 'Status' }], rows,
       summary: [{ label: 'Products needing restock', value: rows.length, type: 'int' }] };
   },
+  cashflow: async (biz, from, to) => {
+    const base = `WITH m AS (
+      SELECT ${local('p.created_at')}::date AS d, CASE WHEN p.kind='payment' THEN 'in' ELSE 'out' END AS dir, CASE WHEN p.kind='payment' THEN 'sales' ELSE 'refunds' END AS k, p.method, p.amount FROM payments p WHERE p.business_id=$1
+      UNION ALL SELECT e.expense_date, 'out', 'expenses', e.payment_method, e.amount FROM expenses e WHERE e.business_id=$1
+      UNION ALL SELECT ${local('sp.created_at')}::date, 'out', 'supplier', coalesce(nullif(lower(sp.method),''),'cash'), sp.amount FROM supplier_payments sp WHERE sp.business_id=$1)`;
+    const open = await one<any>(`${base} SELECT (SELECT opening_cash FROM businesses WHERE id=$1) + coalesce(sum(CASE WHEN dir='in' THEN amount ELSE -amount END) FILTER (WHERE d < $2::date),0) AS opening FROM m`, [biz, from]);
+    const days = await query<any>(
+      `${base} SELECT to_char(d,'YYYY-MM-DD') AS date,
+         coalesce(sum(amount) FILTER (WHERE dir='in' AND method='cash'),0) AS cash_in, coalesce(sum(amount) FILTER (WHERE dir='in' AND method='momo'),0) AS momo_in,
+         coalesce(sum(amount) FILTER (WHERE dir='in' AND method='bank_transfer'),0) AS bank_in, coalesce(sum(amount) FILTER (WHERE dir='in' AND method='card'),0) AS card_in,
+         coalesce(sum(amount) FILTER (WHERE k='refunds'),0) AS refunds, coalesce(sum(amount) FILTER (WHERE k='expenses'),0) AS expenses, coalesce(sum(amount) FILTER (WHERE k='supplier'),0) AS supplier_payments,
+         coalesce(sum(CASE WHEN dir='in' THEN amount ELSE -amount END),0) AS net
+       FROM m WHERE d BETWEEN $2::date AND $3::date GROUP BY d ORDER BY d`, [biz, from, to]);
+    let bal = open.opening; const rows = days.map((r) => { bal = round2(bal + r.net); return { ...r, closing: bal }; });
+    const sum = (k: string) => round2(rows.reduce((t, r) => t + r[k], 0));
+    const money = (key: string, label: string) => ({ key, label, type: 'money' as const });
+    return { title: 'Cash flow (money actually received and paid out)', columns: [{ key: 'date', label: 'Date', type: 'date' }, money('cash_in', 'Cash in'), money('momo_in', 'MoMo in'), money('bank_in', 'Bank in'), money('card_in', 'Card in'),
+      money('refunds', 'Refunds'), money('expenses', 'Expenses'), money('supplier_payments', 'Supplier pay'), money('net', 'Net'), money('closing', 'Closing balance')], rows,
+      summary: [{ label: 'Opening balance', value: round2(open.opening), type: 'money' }, { label: 'Money in', value: round2(sum('cash_in') + sum('momo_in') + sum('bank_in') + sum('card_in')), type: 'money' },
+        { label: 'Money out', value: round2(sum('refunds') + sum('expenses') + sum('supplier_payments')), type: 'money' }, { label: 'Closing balance', value: round2(bal), type: 'money' }] };
+  },
+  receivables: async (biz) => {
+    const rows = await query<any>(
+      `SELECT c.name AS customer, coalesce(c.phone,'') AS phone, s.receipt_no, to_char(${local('s.created_at')},'YYYY-MM-DD') AS date, coalesce(to_char(s.due_date,'YYYY-MM-DD'),'') AS due, s.total, s.amount_paid AS paid, s.balance_due AS balance
+         FROM sales s JOIN customers c ON c.id=s.customer_id WHERE s.business_id=$1 AND s.balance_due > 0 ORDER BY s.due_date NULLS LAST, s.created_at`, [biz]);
+    return { title: 'Outstanding customer payments', columns: [{ key: 'customer', label: 'Customer' }, { key: 'phone', label: 'Phone' }, { key: 'receipt_no', label: 'Receipt' }, { key: 'date', label: 'Sold' }, { key: 'due', label: 'Due' },
+      { key: 'total', label: 'Total', type: 'money' }, { key: 'paid', label: 'Paid', type: 'money' }, { key: 'balance', label: 'Balance', type: 'money' }], rows,
+      summary: [{ label: 'Total owed by customers', value: round2(rows.reduce((t, r) => t + r.balance, 0)), type: 'money' }] };
+  },
+  payables: async (biz) => {
+    const rows = await query<any>(
+      `SELECT s.name AS supplier, count(po.id) AS orders, coalesce(sum(po.total_cost),0) AS ordered, coalesce(sum(po.amount_paid),0) AS paid, coalesce(sum(po.total_cost - po.amount_paid),0) AS balance
+         FROM suppliers s LEFT JOIN purchase_orders po ON po.supplier_id=s.id AND po.status <> 'cancelled' WHERE s.business_id=$1 GROUP BY s.id HAVING count(po.id) > 0 ORDER BY balance DESC, lower(s.name)`, [biz]);
+    return { title: 'Supplier balances (what we owe)', columns: [{ key: 'supplier', label: 'Supplier' }, { key: 'orders', label: 'Orders', type: 'int' }, { key: 'ordered', label: 'Ordered', type: 'money' }, { key: 'paid', label: 'Paid', type: 'money' }, { key: 'balance', label: 'Balance', type: 'money' }], rows,
+      summary: [{ label: 'Total owed to suppliers', value: round2(rows.reduce((t, r) => t + r.balance, 0)), type: 'money' }] };
+  },
+  'sales-by-payment': async (biz, from, to) => {
+    const rows = await query<any>(
+      `SELECT p.method, count(DISTINCT p.sale_id) AS sales, coalesce(sum(p.amount) FILTER (WHERE p.kind='payment'),0) AS received, coalesce(sum(p.amount) FILTER (WHERE p.kind='refund'),0) AS refunded
+         FROM payments p WHERE p.business_id=$1 AND ${local('p.created_at')}::date BETWEEN $2::date AND $3::date GROUP BY p.method ORDER BY received DESC`, [biz, from, to]);
+    return { title: 'Payments by method', columns: [{ key: 'method', label: 'Method' }, { key: 'sales', label: 'Sales', type: 'int' }, { key: 'received', label: 'Received', type: 'money' }, { key: 'refunded', label: 'Refunded', type: 'money' }], rows,
+      summary: [{ label: 'Total received', value: round2(rows.reduce((t, r) => t + r.received, 0)), type: 'money' }] };
+  },
+  'sales-by-category': async (biz, from, to) => {
+    const rows = await query<any>(
+      `SELECT coalesce(c.name,'Uncategorised') AS category, sum(si.quantity - si.returned_qty) AS units, sum(si.line_total * (si.quantity - si.returned_qty) / si.quantity) AS revenue
+         FROM sale_items si JOIN sales s ON s.id=si.sale_id JOIN product_variations v ON v.id=si.variation_id JOIN products p ON p.id=v.product_id LEFT JOIN categories c ON c.id=p.category_id
+        WHERE si.business_id=$1 AND ${local('s.created_at')}::date BETWEEN $2::date AND $3::date GROUP BY 1 ORDER BY revenue DESC`, [biz, from, to]);
+    return { title: 'Sales by category (before sale-level discounts)', columns: [{ key: 'category', label: 'Category' }, { key: 'units', label: 'Units', type: 'int' }, { key: 'revenue', label: 'Revenue', type: 'money' }], rows,
+      summary: [{ label: 'Total', value: round2(rows.reduce((t, r) => t + Number(r.revenue), 0)), type: 'money' }] };
+  },
+  'stock-movements': async (biz, from, to) => {
+    const rows = await query<any>(
+      `SELECT to_char(${local('m.created_at')},'YYYY-MM-DD HH24:MI') AS date, p.name || coalesce(' (' || v.label || ')','') AS product, m.type, m.qty_change AS change, m.reason, coalesce(u.name,'') AS by
+         FROM stock_movements m JOIN product_variations v ON v.id=m.variation_id JOIN products p ON p.id=v.product_id LEFT JOIN users u ON u.id=m.user_id
+        WHERE m.business_id=$1 AND ${local('m.created_at')}::date BETWEEN $2::date AND $3::date ORDER BY m.created_at DESC LIMIT 5000`, [biz, from, to]);
+    return { title: 'Stock movements', columns: [{ key: 'date', label: 'When' }, { key: 'product', label: 'Product' }, { key: 'type', label: 'Type' }, { key: 'change', label: 'Change', type: 'int' }, { key: 'reason', label: 'Reason' }, { key: 'by', label: 'By' }], rows,
+      summary: [{ label: 'Movements', value: rows.length, type: 'int' }] };
+  },
   expenses: async (biz, from, to) => {
     const rows = await query<any>(
       `SELECT to_char(e.expense_date,'YYYY-MM-DD') AS date, e.category, coalesce(e.description,'') AS description, e.amount, u.name AS recorded_by FROM expenses e LEFT JOIN users u ON u.id=e.created_by
@@ -138,6 +197,14 @@ reportsRouter.get('/reports/:name', requirePerm('reports.view'), async (req, res
   if (q.format === 'json') return res.json({ ...report, meta });
 
   const filename = `${String(req.params.name)}_${from}_to_${to}`;
+  if (q.format === 'csv') {
+    const esc = (v: any) => { let t = v === null || v === undefined ? '' : String(v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return /[",\n]/.test(t) ? `"${t.replaceAll('"', '""')}"` : t; };
+    const lines = [[`${b.name} - ${report.title}`], [`Period: ${from} to ${to}`, `Generated: ${meta.generated_at}`], [], report.columns.map((c) => c.label),
+      ...report.rows.map((r) => report.columns.map((c) => r[c.key])), [], ...report.summary.map((x) => [x.label, x.value])];
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+    return res.send('\uFEFF' + lines.map((l) => l.map(esc).join(',')).join('\r\n'));
+  }
   if (q.format === 'xlsx') {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Report');
@@ -181,4 +248,15 @@ reportsRouter.get('/reports/:name', requirePerm('reports.view'), async (req, res
   doc.moveDown();
   for (const s of report.summary) { doc.fillColor('#111').font('Helvetica-Bold').fontSize(10).text(`${s.label}: ${fmt(s.value, s.type, pdfSymbol(b.currency_symbol))}`, 36); }
   doc.end();
+});
+
+reportsRouter.put('/finance/opening-cash', requireOwner, async (req, res) => {
+  const b = z.object({ opening_cash: z.coerce.number().min(-1e9).max(1e9) }).parse(req.body);
+  const old = await one<any>('SELECT opening_cash FROM businesses WHERE id=$1', [req.user!.business_id]);
+  await query('UPDATE businesses SET opening_cash=$2 WHERE id=$1', [req.user!.business_id, round2(b.opening_cash)]);
+  await audit(req, req.user, 'settings.opening_cash', 'business', req.user!.business_id, { from: old?.opening_cash, to: b.opening_cash });
+  res.json({ ok: true });
+});
+reportsRouter.get('/finance/opening-cash', requirePerm('reports.view'), async (req, res) => {
+  res.json(await one('SELECT opening_cash FROM businesses WHERE id=$1', [req.user!.business_id]));
 });

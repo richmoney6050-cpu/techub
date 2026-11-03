@@ -102,5 +102,6 @@ Also enable your hosting provider's automatic database backups. Test a restore o
 Done: navy/electric-blue palette, Light/Dark/Auto theme (saved per user), customers, credit sales + customer payments, warranties/serial/IMEI + claims, warranty and overdue alerts.
 New permissions: `customers.manage`, `customers.credit`, `warranty.manage` (existing roles must be edited by the owner to grant them; the owner has them automatically).
 Behaviour change: a sale with an unpaid balance now requires a registered customer and `customers.credit`.
-Not yet built: cash-flow report, barcode generation/printing/QR, scanner support, dashboard date filters and extra charts, backup/restore module, CSV export, supplier balances report, receipt/serial capture at POS.
+Stage 2 added: cash-flow report (with opening balance), customer/supplier balance reports, payments-by-method, sales-by-category, stock-movement reports, CSV export on every report, expense payment method, dashboard cards (owed by customers / to suppliers) + monthly profit & loss + expense breakdown charts, Code-128 barcode generation (EAN-13 in-store range), barcode display and label printing.
+Not yet built: QR codes, camera scanning, scanning when receiving stock, dashboard date-range filter, backup/restore module, 'other income' in cash flow, user-defined payment methods, serial capture at POS.
 Nothing in this upgrade has been executed end-to-end yet: SQL was verified on Postgres, TS/TSX only syntax-checked. Run `npm test` in api/ and a manual pass before production.

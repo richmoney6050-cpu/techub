@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { get, put, post, del, api, money } from '@/lib/api';
 import { Page, Card, Field, Err, Loading, AsyncButton, useToast, Modal } from '@/components/ui';
 import { useMe } from '@/lib/me';
+import { BarcodeSvg, printLabels } from '@/components/Barcode';
 
 export default function EditProduct() {
   const { id } = useParams<{ id: string }>(); const router = useRouter(); const toast = useToast(); const me = useMe();
@@ -55,7 +56,10 @@ export default function EditProduct() {
         <div className="grid g4">
           <Field label="Variation"><input value={v.label || ''} onChange={(e) => setVar(i, 'label', e.target.value)} /></Field>
           <Field label="SKU"><input value={v.sku} onChange={(e) => setVar(i, 'sku', e.target.value)} /></Field>
-          <Field label="Barcode"><input value={v.barcode || ''} onChange={(e) => setVar(i, 'barcode', e.target.value)} /></Field>
+          <Field label="Barcode"><input value={v.barcode || ''} onChange={(e) => setVar(i, 'barcode', e.target.value)} />
+            {can('products.edit') && <div className="row" style={{ marginTop: 6 }}>{!v.barcode && <button type="button" className="btn secondary sm" onClick={async () => { try { const r = await post(`/variations/${v.id}/barcode`); setVar(i, 'barcode', r.barcode); toast('Barcode generated'); } catch (e: any) { toast(e.message, 'err'); } }}>Generate barcode</button>}
+              {v.barcode && <button type="button" className="btn secondary sm" onClick={() => printLabels([{ code: v.barcode, name: `${p.name}${v.label ? ' - ' + v.label : ''}`, price: money(v.selling_price, me.currency_symbol), copies: 1 }])}>Print label</button>}</div>}
+            {v.barcode && <BarcodeSvg code={v.barcode} height={40} />}</Field>
           <Field label="Min stock alert"><input type="number" min={0} value={v.min_stock} onChange={(e) => setVar(i, 'min_stock', e.target.value)} /></Field>
           <Field label="Selling price"><input type="number" step="0.01" disabled={!can('products.edit_price')} value={v.selling_price} onChange={(e) => setVar(i, 'selling_price', e.target.value)} /></Field>
           {can('products.view_cost') && <Field label="Purchase price"><input type="number" step="0.01" disabled={!can('products.edit_price')} value={v.purchase_price} onChange={(e) => setVar(i, 'purchase_price', e.target.value)} /></Field>}

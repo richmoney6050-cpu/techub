@@ -128,15 +128,15 @@ suppliersRouter.post('/purchase-orders/:id/cancel', sup, async (req, res) => {
 suppliersRouter.get('/expenses', requireAny('expenses.manage', 'reports.view'), async (req, res) => {
   const q = z.object({ from: z.string().optional(), to: z.string().optional() }).parse(req.query);
   const rows = await query(
-    `SELECT e.id, e.category, e.description, e.amount, e.expense_date, u.name AS created_by_name FROM expenses e LEFT JOIN users u ON u.id=e.created_by
+    `SELECT e.id, e.category, e.description, e.amount, e.expense_date, e.payment_method, u.name AS created_by_name FROM expenses e LEFT JOIN users u ON u.id=e.created_by
       WHERE e.business_id=$1 AND ($2::date IS NULL OR e.expense_date >= $2::date) AND ($3::date IS NULL OR e.expense_date <= $3::date) ORDER BY e.expense_date DESC, e.created_at DESC LIMIT 500`,
     [req.user!.business_id, q.from || null, q.to || null]);
   res.json({ expenses: rows });
 });
 suppliersRouter.post('/expenses', requirePerm('expenses.manage'), async (req, res) => {
-  const b = z.object({ category: z.string().trim().min(2).max(80), description: z.string().trim().max(300).optional(), amount: z.coerce.number().positive().max(100_000_000), expense_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(req.body);
-  const row = await one('INSERT INTO expenses (business_id, category, description, amount, expense_date, created_by) VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6) RETURNING *',
-    [req.user!.business_id, b.category, b.description || null, round2(b.amount), b.expense_date || null, req.user!.id]);
+  const b = z.object({ category: z.string().trim().min(2).max(80), description: z.string().trim().max(300).optional(), amount: z.coerce.number().positive().max(100_000_000), payment_method: z.enum(['cash', 'momo', 'bank_transfer', 'card']).default('cash'), expense_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(req.body);
+  const row = await one('INSERT INTO expenses (business_id, category, description, amount, expense_date, created_by, payment_method) VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6,$7) RETURNING *',
+    [req.user!.business_id, b.category, b.description || null, round2(b.amount), b.expense_date || null, req.user!.id, b.payment_method]);
   await audit(req, req.user, 'expense.create', 'expense', row.id, { amount: b.amount, category: b.category });
   res.status(201).json({ expense: row });
 });

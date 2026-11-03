@@ -73,12 +73,24 @@ dashboardRouter.get('/dashboard', async (req, res) => {
       `SELECT coalesce(c.name,'Uncategorised') AS category, sum(i.quantity) AS units FROM inventory i JOIN product_variations v ON v.id=i.variation_id JOIN products p ON p.id=v.product_id
          LEFT JOIN categories c ON c.id=p.category_id WHERE i.business_id=$1 AND v.is_active GROUP BY 1 ORDER BY 2 DESC LIMIT 8`, [biz]),
   ]);
+  const [owed, payable, expenseBreakdown, monthly] = await Promise.all([
+    one<any>('SELECT coalesce(sum(balance_due),0) AS n FROM sales WHERE business_id=$1 AND balance_due > 0', [biz]),
+    one<any>(`SELECT coalesce(sum(total_cost - amount_paid),0) AS n FROM purchase_orders WHERE business_id=$1 AND status <> 'cancelled'`, [biz]),
+    query(`SELECT category, sum(amount) AS amount FROM expenses WHERE business_id=$1 AND expense_date >= (${local('now()')}::date - 29) GROUP BY category ORDER BY amount DESC LIMIT 8`, [biz]),
+    query(`WITH months AS (SELECT generate_series(date_trunc('month', ${local('now()')})::date - interval '5 months', date_trunc('month', ${local('now()')})::date, '1 month')::date AS m),
+      sl AS (SELECT date_trunc('month', ${local('s.created_at')})::date AS m, sum(s.total - s.refunded_total) AS revenue,
+                    sum(s.total - s.refunded_total - (coalesce((SELECT sum(si.unit_cost*si.quantity) FROM sale_items si WHERE si.sale_id=s.id),0) - coalesce((SELECT sum(si.unit_cost*ri.quantity) FROM return_items ri JOIN sale_items si ON si.id=ri.sale_item_id WHERE si.sale_id=s.id AND ri.restocked),0))) AS gross
+               FROM sales s WHERE s.business_id=$1 GROUP BY 1),
+      ex AS (SELECT date_trunc('month', expense_date)::date AS m, sum(amount) AS expenses FROM expenses WHERE business_id=$1 GROUP BY 1)
+      SELECT to_char(months.m,'YYYY-MM') AS month, coalesce(sl.revenue,0) AS revenue, coalesce(sl.gross,0) AS gross_profit, coalesce(ex.expenses,0) AS expenses, coalesce(sl.gross,0) - coalesce(ex.expenses,0) AS net_profit
+        FROM months LEFT JOIN sl ON sl.m=months.m LEFT JOIN ex ON ex.m=months.m ORDER BY months.m`, [biz]),
+  ]);
   const unread = await one<any>('SELECT count(*) AS n FROM notifications WHERE business_id=$1 AND NOT is_read', [biz]);
   res.json({
     scope: 'owner',
-    cards: { ...counts, ...sales, net_profit: Math.round((sales.gross_profit - sales.expenses) * 100) / 100 },
+    cards: { ...counts, ...sales, net_profit: Math.round((sales.gross_profit - sales.expenses) * 100) / 100, pending_customer_payments: owed.n, outstanding_supplier_payments: payable.n },
     low_out_of_stock: lowOut, recent_sales: recent, best_sellers: best,
-    charts: { daily_sales: daily, stock_movements: movements, stock_by_category: perCat },
+    charts: { daily_sales: daily, stock_movements: movements, stock_by_category: perCat, expense_breakdown: expenseBreakdown, monthly_pnl: monthly },
     unread_notifications: unread.n,
   });
 });

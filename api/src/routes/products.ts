@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { query, one, tx, Db, round2 } from '../db.ts';
 import { requirePerm, requireAny, can, audit } from '../auth.ts';
 import { notFound, conflict, bad, forbidden } from '../errors.ts';
-import { applyStock, sendAlerts } from '../inventory.ts';
+import { applyStock, sendAlerts, nextCounter } from '../inventory.ts';
 import { upload, saveImage } from '../files.ts';
 import { loadDemoData } from '../demo.ts';
 
@@ -282,4 +282,25 @@ productsRouter.post('/demo-data', requirePerm('products.create', 'stock.adjust')
   const n = await tx((c) => loadDemoData(c, req.user!.business_id, req.user!.id));
   await audit(req, req.user, 'demo.load', 'product', undefined, { added: n });
   res.json({ ok: true, added: n, message: 'Sample products were added and are marked DEMO. Remove them any time from Settings.' });
+});
+
+// Generate a unique in-store EAN-13 barcode (prefix 200 = store-internal range) for a variation that has none.
+const ean13 = (twelve: string) => { let s = 0; for (let i = 0; i < 12; i++) s += Number(twelve[i]) * (i % 2 ? 3 : 1); return twelve + String((10 - (s % 10)) % 10); };
+productsRouter.post('/variations/:id/barcode', requirePerm('products.edit'), async (req, res) => {
+  const biz = req.user!.business_id;
+  const code = await tx(async (c) => {
+    const v = await one<any>('SELECT id, barcode FROM product_variations WHERE id=$1 AND business_id=$2 FOR UPDATE', [req.params.id, biz], c);
+    if (!v) throw notFound('Product not found');
+    if (v.barcode) throw conflict('This product already has a barcode');
+    for (let i = 0; i < 20; i++) {
+      const code = ean13('200' + String(await nextCounter(c, biz, 'barcode')).padStart(9, '0'));
+      if (!(await one('SELECT 1 FROM product_variations WHERE business_id=$1 AND barcode=$2', [biz, code], c))) {
+        await query('UPDATE product_variations SET barcode=$2, updated_at=now() WHERE id=$1', [v.id, code], c);
+        await audit(req, req.user, 'product.barcode', 'variation', v.id, { barcode: code }, c);
+        return code;
+      }
+    }
+    throw conflict('Could not generate a unique barcode, try again');
+  });
+  res.status(201).json({ barcode: code });
 });

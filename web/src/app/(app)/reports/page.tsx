@@ -1,17 +1,18 @@
 'use client';
 import { useState } from 'react';
-import { useApi, money } from '@/lib/api';
+import { useApi, money, put } from '@/lib/api';
 import { Page, Card, Loading, Err, Field, Stat } from '@/components/ui';
 import { useMe } from '@/lib/me';
 
 const REPORTS: [string, string, boolean][] = [
   ['sales-daily', 'Daily sales', true], ['sales-weekly', 'Weekly sales', true], ['sales-monthly', 'Monthly sales', true], ['sales-annual', 'Annual sales', true],
   ['products', 'Product sales', true], ['employees', 'Employee sales', true], ['gross-profit', 'Gross profit', true], ['inventory', 'Inventory', false], ['low-stock', 'Low stock', false], ['expenses', 'Expenses', true],
+  ['cashflow', 'Cash flow', true], ['receivables', 'Customer balances (owed to us)', false], ['payables', 'Supplier balances (we owe)', false], ['sales-by-payment', 'Payments by method', true], ['sales-by-category', 'Sales by category', true], ['stock-movements', 'Stock movements', true],
 ];
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export default function Reports() {
-  const sym = useMe().currency_symbol;
+  const me = useMe(); const sym = me.currency_symbol;
   const today = new Date(); const [name, setName] = useState('sales-daily');
   const [from, setFrom] = useState(iso(new Date(today.getFullYear(), today.getMonth(), 1))); const [to, setTo] = useState(iso(today));
   const dated = REPORTS.find((r) => r[0] === name)![2];
@@ -23,7 +24,8 @@ export default function Reports() {
     <Card><div className="grid g3"><Field label="Report"><select value={name} onChange={(e) => setName(e.target.value)}>{REPORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
       {dated && <><Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field><Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field></>}</div>
       <div className="row">{dated && (['today', 'week', 'month', 'year'] as const).map((k) => <button key={k} className="btn secondary sm" onClick={() => preset(k)}>{k === 'today' ? 'Today' : k === 'week' ? 'Last 7 days' : k === 'month' ? 'This month' : 'This year'}</button>)}
-        <span style={{ flex: 1 }} /><a className="btn secondary" href={`/api/reports/${name}?${qs}&format=xlsx`}>⬇ Excel</a><a className="btn secondary" href={`/api/reports/${name}?${qs}&format=pdf`} target="_blank" rel="noreferrer">⬇ PDF</a></div></Card>
+        <span style={{ flex: 1 }} /><a className="btn secondary" href={`/api/reports/${name}?${qs}&format=csv`}>⬇ CSV</a><a className="btn secondary" href={`/api/reports/${name}?${qs}&format=xlsx`}>⬇ Excel</a><a className="btn secondary" href={`/api/reports/${name}?${qs}&format=pdf`} target="_blank" rel="noreferrer">⬇ PDF</a></div></Card>
+    {name === 'cashflow' && me.role === 'owner' && <OpeningCash sym={sym} onSaved={r.reload} />}
     <div style={{ height: 14 }} />
     {r.loading && !r.data ? <Loading /> : r.error ? <Err msg={r.error} /> : r.data && <>
       <div className="grid g4">{r.data.summary.map((s: any) => <Stat key={s.label} label={s.label} value={fmt(s.value, s.type)} />)}</div>
@@ -31,4 +33,10 @@ export default function Reports() {
         {r.data.rows.map((row: any, i: number) => <tr key={i}>{r.data.columns.map((c: any) => <td key={c.key} className={c.type === 'money' || c.type === 'int' ? 'num' : ''}>{fmt(row[c.key], c.type)}</td>)}</tr>)}
         {r.data.rows.length === 0 && <tr><td colSpan={r.data.columns.length} className="empty">No data for this period</td></tr>}</tbody></table></div></Card></>}
   </Page>);
+}
+
+function OpeningCash({ sym, onSaved }: { sym: string; onSaved: () => void }) {
+  const cur = useApi<any>('/finance/opening-cash'); const [v, setV] = useState(''); const [err, setErr] = useState<string | null>(null);
+  async function save() { setErr(null); try { await put('/finance/opening-cash', { opening_cash: Number(v) }); setV(''); cur.reload(); onSaved(); } catch (e: any) { setErr(e.message); } }
+  return (<Card style={{ marginTop: 14 }}><Err msg={err} /><div className="row"><span className="small muted">Opening cash balance (money in the till/accounts before TECHHUB records began): <b>{money(cur.data?.opening_cash ?? 0, sym)}</b></span><input style={{ maxWidth: 140 }} type="number" step="0.01" placeholder="New amount" value={v} onChange={(e) => setV(e.target.value)} /><button className="btn secondary sm" disabled={v === ''} onClick={save}>Update</button></div></Card>);
 }

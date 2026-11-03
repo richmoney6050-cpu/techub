@@ -452,3 +452,10 @@ ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description, owner_only =
 -- customer payments reuse the existing payments table; idempotency key prevents double-posting
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS idempotency_key text;
 CREATE UNIQUE INDEX IF NOT EXISTS payments_idem_uq ON payments (business_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+-- Finance: opening cash balance and expense payment method (cash-flow report)
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS opening_cash numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_method text NOT NULL DEFAULT 'cash';
+DO $$ BEGIN
+  ALTER TABLE expenses ADD CONSTRAINT expenses_method_check CHECK (payment_method IN ('cash','momo','bank_transfer','card'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
