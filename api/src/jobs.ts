@@ -1,6 +1,7 @@
 import { query } from './db.ts';
 import { config } from './config.ts';
 import { deliverExternal } from './notify.ts';
+import { runScheduledBackups } from './backup.ts';
 
 const today = `(now() AT TIME ZONE '${config.timezone}')::date`;
 const WARRANTY_DAYS = Number(process.env.WARRANTY_ALERT_DAYS || 30);
@@ -25,5 +26,7 @@ export async function runDailyChecks() {
 }
 export function startJobs() {
   setTimeout(runDailyChecks, 15_000);
+  setTimeout(runScheduledBackups, 60_000);
+  setInterval(runScheduledBackups, 60 * 60 * 1000).unref();
   setInterval(runDailyChecks, 6 * 60 * 60 * 1000).unref();
 }

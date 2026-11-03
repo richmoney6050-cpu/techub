@@ -21,6 +21,7 @@ const NAV: { href: string; label: string; icon: string; perm?: string[]; owner?:
   { href: '/reports', label: 'Reports', icon: '📊', perm: ['reports.view'] },
   { href: '/employees', label: 'Employees', icon: '👥', owner: true },
   { href: '/notifications', label: 'Notifications', icon: '🔔', perm: ['notifications.view'] },
+  { href: '/backups', label: 'Backups', icon: '💾', owner: true },
   { href: '/settings', label: 'Settings', icon: '⚙', owner: true },
 ];
 

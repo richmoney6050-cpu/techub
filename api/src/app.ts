@@ -21,6 +21,7 @@ import { dashboardRouter } from './routes/dashboard.ts';
 import { reportsRouter } from './routes/reports.ts';
 import { customersRouter } from './routes/customers.ts';
 import { warrantiesRouter } from './routes/warranties.ts';
+import { backupsRouter } from './routes/backups.ts';
 
 export function createApp() {
   const app = express();
@@ -51,7 +52,7 @@ export function createApp() {
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.sendFile(file);
   });
-  app.use('/api', catalogRouter, productsRouter, inventoryRouter, salesRouter, returnsRouter, suppliersRouter, adminRouter, dashboardRouter, reportsRouter, customersRouter, warrantiesRouter);
+  app.use('/api', catalogRouter, productsRouter, inventoryRouter, salesRouter, returnsRouter, suppliersRouter, adminRouter, dashboardRouter, reportsRouter, customersRouter, warrantiesRouter, backupsRouter);
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 

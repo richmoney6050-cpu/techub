@@ -459,3 +459,30 @@ ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_method text NOT NULL DEFAU
 DO $$ BEGIN
   ALTER TABLE expenses ADD CONSTRAINT expenses_method_check CHECK (payment_method IN ('cash','momo','bank_transfer','card'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Backups (logical, checksummed, optionally encrypted). A backup only counts once verified.
+CREATE TABLE IF NOT EXISTS backups (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id uuid NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  kind text NOT NULL CHECK (kind IN ('manual','scheduled','pre_restore')),
+  status text NOT NULL DEFAULT 'running' CHECK (status IN ('running','verified','failed')),
+  filename text,
+  size_bytes bigint,
+  sha256 text,
+  encrypted boolean NOT NULL DEFAULT false,
+  table_counts jsonb,
+  file_count integer NOT NULL DEFAULT 0,
+  error text,
+  created_by uuid REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  verified_at timestamptz,
+  restored_at timestamptz,
+  restored_by uuid REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS backups_biz_idx ON backups (business_id, created_at DESC);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS backup_frequency text NOT NULL DEFAULT 'daily';
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS backup_retention integer NOT NULL DEFAULT 14;
+DO $$ BEGIN
+  ALTER TABLE businesses ADD CONSTRAINT businesses_backup_freq_check CHECK (backup_frequency IN ('off','daily','weekly'));
+  ALTER TABLE businesses ADD CONSTRAINT businesses_backup_ret_check CHECK (backup_retention BETWEEN 3 AND 90);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
