@@ -19,5 +19,17 @@ export default function Expenses() {
     <Card>{list.loading && !list.data ? <Loading /> : <div className="table-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Paid with</th><th>Recorded by</th><th className="num">Amount</th><th></th></tr></thead><tbody>
       {list.data?.expenses.map((e: any) => <tr key={e.id}><td>{e.expense_date}</td><td>{e.category}</td><td className="small">{e.description}</td><td>{e.payment_method}</td><td>{e.created_by_name}</td><td className="num"><b>{money(e.amount, sym)}</b></td><td>{can && <button className="btn ghost sm" onClick={async () => { if (confirm('Delete this expense?')) { await del(`/expenses/${e.id}`); list.reload(); } }}>Delete</button>}</td></tr>)}
       {list.data?.expenses.length === 0 && <tr><td colSpan={7} className="empty">No expenses recorded</td></tr>}</tbody></table></div>}</Card>
+    {can && <OtherIncome sym={sym} />}
   </Page>);
+}
+
+function OtherIncome({ sym }: { sym: string }) {
+  const list = useApi<any>('/income'); const toast = useToast(); const [f, setF] = useState({ title: '', amount: '', payment_method: 'cash' }); const [err, setErr] = useState<string | null>(null);
+  async function add() { setErr(null); try { await post('/income', { ...f, amount: Number(f.amount) }); setF({ title: '', amount: '', payment_method: 'cash' }); list.reload(); toast('Income recorded'); } catch (e: any) { setErr(e.message); } }
+  return (<><div style={{ height: 14 }} /><Card><h2>Other income</h2><p className="muted small">Money received that is not from a sale (e.g. repair fees, commissions). It appears in the cash-flow report, not in sales revenue.</p><Err msg={err} />
+    <div className="grid g4"><Field label="Title"><input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field><Field label={`Amount (${sym})`}><input type="number" min={0} step="0.01" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+      <Field label="Received by"><select value={f.payment_method} onChange={(e) => setF({ ...f, payment_method: e.target.value })}><option value="cash">Cash</option><option value="momo">MoMo</option><option value="bank_transfer">Bank</option><option value="card">Card</option></select></Field></div>
+    <AsyncButton onClick={add} disabled={!f.amount || f.title.trim().length < 2}>Add income</AsyncButton>
+    <div className="table-wrap" style={{ marginTop: 12 }}><table><tbody>{list.data?.income.map((i: any) => <tr key={i.id}><td>{i.income_date}</td><td>{i.title}</td><td>{i.payment_method}</td><td className="num"><b>{money(i.amount, sym)}</b></td><td><button className="btn ghost sm" onClick={async () => { if (confirm('Delete this entry?')) { await del(`/income/${i.id}`); list.reload(); } }}>Delete</button></td></tr>)}
+      {list.data?.income.length === 0 && <tr><td className="empty">No other income recorded</td></tr>}</tbody></table></div></Card></>);
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { query, one, round2 } from '../db.ts';
-import { requirePerm, requireOwner, audit } from '../auth.ts';
+import { requirePerm, requireOwner, requireAny, audit } from '../auth.ts';
 import { config } from '../config.ts';
 import { bad, notFound } from '../errors.ts';
 import { pdfSymbol } from '../receipt.ts';
@@ -115,21 +115,22 @@ const BUILDERS: Record<string, (biz: string, from: string, to: string, emp?: str
     const base = `WITH m AS (
       SELECT ${local('p.created_at')}::date AS d, CASE WHEN p.kind='payment' THEN 'in' ELSE 'out' END AS dir, CASE WHEN p.kind='payment' THEN 'sales' ELSE 'refunds' END AS k, p.method, p.amount FROM payments p WHERE p.business_id=$1
       UNION ALL SELECT e.expense_date, 'out', 'expenses', e.payment_method, e.amount FROM expenses e WHERE e.business_id=$1
+      UNION ALL SELECT i.income_date, 'in', 'other', i.payment_method, i.amount FROM other_income i WHERE i.business_id=$1
       UNION ALL SELECT ${local('sp.created_at')}::date, 'out', 'supplier', coalesce(nullif(lower(sp.method),''),'cash'), sp.amount FROM supplier_payments sp WHERE sp.business_id=$1)`;
     const open = await one<any>(`${base} SELECT (SELECT opening_cash FROM businesses WHERE id=$1) + coalesce(sum(CASE WHEN dir='in' THEN amount ELSE -amount END) FILTER (WHERE d < $2::date),0) AS opening FROM m`, [biz, from]);
     const days = await query<any>(
       `${base} SELECT to_char(d,'YYYY-MM-DD') AS date,
          coalesce(sum(amount) FILTER (WHERE dir='in' AND method='cash'),0) AS cash_in, coalesce(sum(amount) FILTER (WHERE dir='in' AND method='momo'),0) AS momo_in,
-         coalesce(sum(amount) FILTER (WHERE dir='in' AND method='bank_transfer'),0) AS bank_in, coalesce(sum(amount) FILTER (WHERE dir='in' AND method='card'),0) AS card_in,
+         coalesce(sum(amount) FILTER (WHERE dir='in' AND method='bank_transfer'),0) AS bank_in, coalesce(sum(amount) FILTER (WHERE dir='in' AND method='card'),0) AS card_in, coalesce(sum(amount) FILTER (WHERE k='other'),0) AS other_income,
          coalesce(sum(amount) FILTER (WHERE k='refunds'),0) AS refunds, coalesce(sum(amount) FILTER (WHERE k='expenses'),0) AS expenses, coalesce(sum(amount) FILTER (WHERE k='supplier'),0) AS supplier_payments,
          coalesce(sum(CASE WHEN dir='in' THEN amount ELSE -amount END),0) AS net
        FROM m WHERE d BETWEEN $2::date AND $3::date GROUP BY d ORDER BY d`, [biz, from, to]);
     let bal = open.opening; const rows = days.map((r) => { bal = round2(bal + r.net); return { ...r, closing: bal }; });
     const sum = (k: string) => round2(rows.reduce((t, r) => t + r[k], 0));
     const money = (key: string, label: string) => ({ key, label, type: 'money' as const });
-    return { title: 'Cash flow (money actually received and paid out)', columns: [{ key: 'date', label: 'Date', type: 'date' }, money('cash_in', 'Cash in'), money('momo_in', 'MoMo in'), money('bank_in', 'Bank in'), money('card_in', 'Card in'),
+    return { title: 'Cash flow (money actually received and paid out)', columns: [{ key: 'date', label: 'Date', type: 'date' }, money('cash_in', 'Cash in'), money('momo_in', 'MoMo in'), money('bank_in', 'Bank in'), money('card_in', 'Card in'), money('other_income', 'of which other income'),
       money('refunds', 'Refunds'), money('expenses', 'Expenses'), money('supplier_payments', 'Supplier pay'), money('net', 'Net'), money('closing', 'Closing balance')], rows,
-      summary: [{ label: 'Opening balance', value: round2(open.opening), type: 'money' }, { label: 'Money in', value: round2(sum('cash_in') + sum('momo_in') + sum('bank_in') + sum('card_in')), type: 'money' },
+      summary: [{ label: 'Opening balance', value: round2(open.opening), type: 'money' }, { label: 'Money in', value: round2(sum('cash_in') + sum('momo_in') + sum('bank_in') + sum('card_in')), type: 'money' }, { label: 'Of which other income', value: sum('other_income'), type: 'money' },
         { label: 'Money out', value: round2(sum('refunds') + sum('expenses') + sum('supplier_payments')), type: 'money' }, { label: 'Closing balance', value: round2(bal), type: 'money' }] };
   },
   receivables: async (biz) => {
@@ -259,4 +260,22 @@ reportsRouter.put('/finance/opening-cash', requireOwner, async (req, res) => {
 });
 reportsRouter.get('/finance/opening-cash', requirePerm('reports.view'), async (req, res) => {
   res.json(await one('SELECT opening_cash FROM businesses WHERE id=$1', [req.user!.business_id]));
+});
+
+// ---- other income ----
+reportsRouter.get('/income', requireAny('expenses.manage', 'reports.view'), async (req, res) => {
+  const rows = await query(`SELECT i.id, i.title, i.amount, i.payment_method, i.income_date, u.name AS created_by_name FROM other_income i LEFT JOIN users u ON u.id=i.created_by WHERE i.business_id=$1 ORDER BY i.income_date DESC, i.created_at DESC LIMIT 200`, [req.user!.business_id]);
+  res.json({ income: rows });
+});
+reportsRouter.post('/income', requirePerm('expenses.manage'), async (req, res) => {
+  const b = z.object({ title: z.string().trim().min(2).max(120), amount: z.coerce.number().positive().max(100_000_000), payment_method: z.enum(['cash', 'momo', 'bank_transfer', 'card']).default('cash'), income_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(req.body);
+  const row = await one<any>('INSERT INTO other_income (business_id, title, amount, payment_method, income_date, created_by) VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6) RETURNING *', [req.user!.business_id, b.title, round2(b.amount), b.payment_method, b.income_date || null, req.user!.id]);
+  await audit(req, req.user, 'income.create', 'other_income', row.id, { title: b.title, amount: b.amount });
+  res.status(201).json({ income: row });
+});
+reportsRouter.delete('/income/:id', requirePerm('expenses.manage'), async (req, res) => {
+  const row = await one<any>('DELETE FROM other_income WHERE id=$1 AND business_id=$2 RETURNING id, title, amount', [req.params.id, req.user!.business_id]);
+  if (!row) throw notFound('Income entry not found');
+  await audit(req, req.user, 'income.delete', 'other_income', row.id, { title: row.title, amount: row.amount });
+  res.json({ ok: true });
 });

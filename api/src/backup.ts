@@ -20,7 +20,7 @@ export const REPLACED: { table: string; scope: string }[] = [
   { table: 'products', scope: 'business_id=$1' }, { table: 'product_variations', scope: 'business_id=$1' }, { table: 'inventory', scope: 'business_id=$1' }, { table: 'stock_movements', scope: 'business_id=$1' },
   { table: 'counters', scope: 'business_id=$1' }, { table: 'sales', scope: 'business_id=$1' }, { table: 'sale_items', scope: 'business_id=$1' }, { table: 'payments', scope: 'business_id=$1' }, { table: 'receipts', scope: 'business_id=$1' },
   { table: 'purchase_orders', scope: 'business_id=$1' }, { table: 'purchase_order_items', scope: 'purchase_order_id IN (SELECT id FROM purchase_orders WHERE business_id=$1)' }, { table: 'supplier_payments', scope: 'business_id=$1' },
-  { table: 'returns', scope: 'business_id=$1' }, { table: 'return_items', scope: 'return_id IN (SELECT id FROM returns WHERE business_id=$1)' }, { table: 'expenses', scope: 'business_id=$1' },
+  { table: 'returns', scope: 'business_id=$1' }, { table: 'return_items', scope: 'return_id IN (SELECT id FROM returns WHERE business_id=$1)' }, { table: 'expenses', scope: 'business_id=$1' }, { table: 'other_income', scope: 'business_id=$1' },
   { table: 'notifications', scope: 'business_id=$1' }, { table: 'warranties', scope: 'business_id=$1' }, { table: 'warranty_claims', scope: 'business_id=$1' },
 ];
 /** Copied into the backup for reference, restored only when missing (never overwrite current access control). */

@@ -486,3 +486,16 @@ DO $$ BEGIN
   ALTER TABLE businesses ADD CONSTRAINT businesses_backup_freq_check CHECK (backup_frequency IN ('off','daily','weekly'));
   ALTER TABLE businesses ADD CONSTRAINT businesses_backup_ret_check CHECK (backup_retention BETWEEN 3 AND 90);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Other income (not from sales), counted in the cash-flow report
+CREATE TABLE IF NOT EXISTS other_income (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id uuid NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  amount numeric(12,2) NOT NULL CHECK (amount > 0),
+  payment_method text NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash','momo','bank_transfer','card')),
+  income_date date NOT NULL DEFAULT CURRENT_DATE,
+  created_by uuid REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS other_income_biz_idx ON other_income (business_id, income_date DESC);
