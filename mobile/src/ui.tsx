@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { Text, View, Pressable, StyleSheet, TextInput, ActivityIndicator, TextInputProps } from 'react-native';
 
-export const C = { navy: '#0b1f3a', blue: '#1e6bff', bg: '#f3f5f9', line: '#e1e6ef', muted: '#5d6b82', ok: '#0f9d58', warn: '#b7791f', bad: '#d93025' };
+export const C = { navy: '#0b1220', blue: '#176bff', bg: '#f3f5f9', line: '#e1e6ef', muted: '#5d6b82', ok: '#0f9d58', warn: '#b7791f', bad: '#d93025' };
 export const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg }, pad: { padding: 14 },
   card: { backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.line, marginBottom: 12 },

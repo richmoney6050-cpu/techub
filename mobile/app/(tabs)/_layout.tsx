@@ -12,6 +12,8 @@ export default function TabsLayout() {
     <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: icon('▦') }} />
     <Tabs.Screen name="search" options={{ title: 'Search', tabBarIcon: icon('🔎'), href: can('products.view') ? undefined : null }} />
     <Tabs.Screen name="pos" options={{ title: 'Sell', tabBarIcon: icon('🛒'), href: can('sales.create') ? undefined : null }} />
+    <Tabs.Screen name="customers" options={{ title: 'Customers', tabBarIcon: icon('🧑'), href: can('customers.manage') ? undefined : null }} />
+    <Tabs.Screen name="warranty" options={{ title: 'Warranty', tabBarIcon: icon('🛡'), href: can('warranty.manage') ? undefined : null }} />
     <Tabs.Screen name="alerts" options={{ title: 'Alerts', tabBarIcon: icon('🔔'), href: can('notifications.view') ? undefined : null }} />
     <Tabs.Screen name="more" options={{ title: 'Account', tabBarIcon: icon('👤') }} />
   </Tabs>);
