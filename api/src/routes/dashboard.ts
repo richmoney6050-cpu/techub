@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { query, one } from '../db.ts';
 import { can } from '../auth.ts';
 import { config } from '../config.ts';
@@ -9,6 +10,7 @@ const local = (col: string) => `(${col} AT TIME ZONE '${TZ}')`;
 
 dashboardRouter.get('/dashboard', async (req, res) => {
   const u = req.user!;
+  const rq = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(req.query);
   const biz = u.business_id;
   const full = u.role === 'owner' || can(u, 'reports.view');
 
@@ -85,9 +87,32 @@ dashboardRouter.get('/dashboard', async (req, res) => {
       SELECT to_char(months.m,'YYYY-MM') AS month, coalesce(sl.revenue,0) AS revenue, coalesce(sl.gross,0) AS gross_profit, coalesce(ex.expenses,0) AS expenses, coalesce(sl.gross,0) - coalesce(ex.expenses,0) AS net_profit
         FROM months LEFT JOIN sl ON sl.m=months.m LEFT JOIN ex ON ex.m=months.m ORDER BY months.m`, [biz]),
   ]);
+  // Optional date-range summary (business-local dates, inclusive; max 366 days)
+  let range: any = null;
+  if (rq.from && rq.to) {
+    if (rq.from > rq.to) return res.status(400).json({ error: 'The start date must be before the end date' });
+    const span = await one<any>('SELECT ($2::date - $1::date) AS d', [rq.from, rq.to]);
+    if (span.d > 365) return res.status(400).json({ error: 'Choose a period of one year or less' });
+    const [tot, daily] = await Promise.all([
+      one<any>(
+        `WITH s AS (SELECT id, total, refunded_total FROM sales WHERE business_id=$1 AND ${local('created_at')}::date BETWEEN $2::date AND $3::date),
+              c AS (SELECT si.sale_id, sum(si.unit_cost * si.quantity) AS cost FROM sale_items si JOIN s ON s.id=si.sale_id GROUP BY si.sale_id),
+              rc AS (SELECT si.sale_id, sum(si.unit_cost * ri.quantity) AS cost FROM return_items ri JOIN sale_items si ON si.id=ri.sale_item_id JOIN s ON s.id=si.sale_id WHERE ri.restocked GROUP BY si.sale_id)
+         SELECT count(s.id) AS sales_count, coalesce(sum(s.total),0) AS gross_sales, coalesce(sum(s.refunded_total),0) AS refunds, coalesce(sum(s.total - s.refunded_total),0) AS revenue,
+                coalesce(sum(coalesce(c.cost,0) - coalesce(rc.cost,0)),0) AS cogs,
+                coalesce(sum(s.total - s.refunded_total - (coalesce(c.cost,0) - coalesce(rc.cost,0))),0) AS gross_profit,
+                (SELECT coalesce(sum(amount),0) FROM expenses WHERE business_id=$1 AND expense_date BETWEEN $2::date AND $3::date) AS expenses
+           FROM s LEFT JOIN c ON c.sale_id=s.id LEFT JOIN rc ON rc.sale_id=s.id`, [biz, rq.from, rq.to]),
+      query(
+        `WITH days AS (SELECT generate_series($2::date, $3::date, '1 day')::date AS d)
+         SELECT to_char(days.d,'YYYY-MM-DD') AS day, coalesce(sum(s.total - s.refunded_total),0) AS sales FROM days
+           LEFT JOIN sales s ON s.business_id=$1 AND ${local('s.created_at')}::date = days.d GROUP BY days.d ORDER BY days.d`, [biz, rq.from, rq.to]),
+    ]);
+    range = { from: rq.from, to: rq.to, ...tot, net_profit: Math.round((tot.gross_profit - tot.expenses) * 100) / 100, daily };
+  }
   const unread = await one<any>('SELECT count(*) AS n FROM notifications WHERE business_id=$1 AND NOT is_read', [biz]);
   res.json({
-    scope: 'owner',
+    scope: 'owner', range,
     cards: { ...counts, ...sales, net_profit: Math.round((sales.gross_profit - sales.expenses) * 100) / 100, pending_customer_payments: owed.n, outstanding_supplier_payments: payable.n },
     low_out_of_stock: lowOut, recent_sales: recent, best_sellers: best,
     charts: { daily_sales: daily, stock_movements: movements, stock_by_category: perCat, expense_breakdown: expenseBreakdown, monthly_pnl: monthly },

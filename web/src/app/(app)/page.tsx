@@ -1,12 +1,15 @@
 'use client';
 import Link from 'next/link';
+import { useState } from 'react';
 import { useApi, money, num, dt, METHOD } from '@/lib/api';
 import { Page, Card, Stat, Loading, Err, LineChart, BarChart, HBars, StatusBadge } from '@/components/ui';
 import { useMe } from '@/lib/me';
 
 export default function Dashboard() {
   const me = useMe();
-  const { data, error, loading } = useApi<any>('/dashboard', { interval: 8000 }); // refreshes automatically
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null);
+  const { data, error, loading } = useApi<any>(`/dashboard${range ? `?from=${range.from}&to=${range.to}` : ''}`, { interval: 8000 }); // refreshes automatically
   if (loading && !data) return <Loading />;
   if (error && !data) return <Err msg={error} />;
   const sym = me.currency_symbol;
@@ -42,6 +45,17 @@ export default function Dashboard() {
       <Stat label="Owed to suppliers" value={money(c.outstanding_supplier_payments, sym)} sub="Unpaid purchase orders" />
       <Link href="/products?stock=low" style={{ textDecoration: 'none' }}><Stat label="Low / out of stock" value={<><span style={{ color: '#b7791f' }}>{num(c.low_stock)}</span> / <span style={{ color: '#d93025' }}>{num(c.out_of_stock)}</span></>} sub="Tap to review" /></Link>
     </div>
+    <Card style={{ marginTop: 14 }}><div className="chart-title">Period summary</div>
+      <div className="row" style={{ marginBottom: 10 }}>
+        {([['Today', 0], ['Yesterday', -1], ['Last 7 days', 6], ['Last 30 days', 29]] as const).map(([l, n]) => <button key={l} className="btn secondary sm" onClick={() => { const t = new Date(); if (n === -1) { t.setDate(t.getDate() - 1); setRange({ from: iso(t), to: iso(t) }); } else { const f = new Date(); f.setDate(f.getDate() - n); setRange({ from: iso(f), to: iso(new Date()) }); } }}>{l}</button>)}
+        <button className="btn secondary sm" onClick={() => { const t = new Date(); setRange({ from: iso(new Date(t.getFullYear(), t.getMonth(), 1)), to: iso(t) }); }}>This month</button>
+        <button className="btn secondary sm" onClick={() => { const t = new Date(); setRange({ from: `${t.getFullYear()}-01-01`, to: iso(t) }); }}>This year</button>
+        <input type="date" style={{ maxWidth: 160 }} aria-label="From" value={range?.from || ''} onChange={(e) => setRange({ from: e.target.value, to: range?.to || e.target.value })} />
+        <input type="date" style={{ maxWidth: 160 }} aria-label="To" value={range?.to || ''} onChange={(e) => setRange({ from: range?.from || e.target.value, to: e.target.value })} />
+        {range && <button className="btn ghost sm" onClick={() => setRange(null)}>Clear</button>}</div>
+      {data.range ? <><div className="grid g4"><Stat label={`Revenue (${data.range.sales_count} sales)`} value={money(data.range.revenue, sym)} sub={`After ${money(data.range.refunds, sym)} refunds`} /><Stat label="Cost of goods sold" value={money(data.range.cogs, sym)} /><Stat label="Gross profit" value={money(data.range.gross_profit, sym)} /><Stat accent label="Net profit" value={money(data.range.net_profit, sym)} sub={`After ${money(data.range.expenses, sym)} expenses`} /></div>
+        <div style={{ height: 12 }} /><LineChart data={data.range.daily} x="day" sym={sym} series={[{ key: 'sales', label: 'Revenue', color: '#176bff' }]} /></> : <div className="muted small">Pick a period to see revenue, cost of goods, gross profit and net profit for exactly those dates.</div>}
+    </Card>
     <div className="grid g2" style={{ marginTop: 14 }}>
       <Card><div className="chart-title">Sales — last 30 days</div><LineChart data={data.charts.daily_sales} x="day" sym={sym} series={[{ key: 'sales', label: 'Sales', color: '#1e6bff' }]} /></Card>
       <Card><div className="chart-title">Stock movement — last 14 days (units)</div><BarChart data={data.charts.stock_movements} x="day" series={[{ key: 'stock_in', label: 'Stock in', color: '#0f9d58' }, { key: 'stock_out', label: 'Stock out', color: '#0b1f3a' }]} /></Card>
