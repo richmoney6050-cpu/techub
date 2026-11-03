@@ -4,6 +4,7 @@ import { get, post, money, uuid, ApiError } from '@/lib/api';
 import { Page, Card, Err, Modal, StatusBadge, Thumb, useToast, AsyncButton, Field } from '@/components/ui';
 import { useMe } from '@/lib/me';
 import { ReceiptModal } from '@/components/Receipt';
+import CameraScan from '@/components/CameraScan';
 
 interface Line { variation_id: string; name: string; sku: string; price: number; qty: number; max: number }
 const METHODS = [['cash', 'Cash'], ['momo', 'MoMo'], ['bank_transfer', 'Bank'], ['card', 'Card']] as const;
@@ -38,6 +39,17 @@ export default function POS() {
     });
   }
   // Barcode scanners type the code then press Enter: exact SKU/barcode match adds straight to the cart.
+  const [scanning, setScanning] = useState(false);
+  async function scanned(code: string) {
+    setScanning(false);
+    try {
+      const r = await get(`/products?q=${encodeURIComponent(code)}&limit=10`);
+      const hit = r.items.find((p: any) => p.barcode === code || p.sku.toLowerCase() === code.toLowerCase());
+      if (!hit) return toast(`No product with barcode ${code}`, 'err');
+      if (hit.quantity < 1) return toast(`${hit.name} is out of stock`, 'err');
+      add(hit); toast(`Added ${hit.name}`);
+    } catch (e: any) { toast(e.message, 'err'); }
+  }
   async function onEnter() {
     const t = q.trim(); if (!t) return;
     const exact = items.find((p) => p.sku.toLowerCase() === t.toLowerCase() || p.barcode === t);
@@ -77,6 +89,8 @@ export default function POS() {
       <div>
         <Card>
           <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onEnter()} placeholder="Search by name, brand, model, SKU — or scan a barcode" autoFocus aria-label="Search products" style={{ fontSize: 17, padding: 14 }} />
+          <button type="button" className="btn secondary" style={{ marginTop: 8 }} onClick={() => setScanning(true)}>📷 Scan with camera</button>
+          {scanning && <CameraScan onCode={scanned} onClose={() => setScanning(false)} />}
           {msg && !loading && <div className="alert warn" style={{ marginTop: 10 }}>{msg}</div>}
           <div className="pos-items">
             {items.map((p) => (<button key={p.variation_id} className="pos-item" disabled={p.quantity < 1} onClick={() => add(p)}>
